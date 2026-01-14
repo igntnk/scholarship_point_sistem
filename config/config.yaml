@@ -1,0 +1,17 @@
+server:
+  grpc_port: ""
+  rest_port: ""
+database:
+  uri: ""
+sms:
+  address: ""
+  insecure: true
+  timeout: 5s
+  tries: 5
+oms:
+  address: ""
+  insecure: true
+  timeout: 5s
+  tries: 5
+
+
