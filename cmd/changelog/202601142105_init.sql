@@ -12,16 +12,16 @@ alter table category
 DO
 $$
     DECLARE
-default_uuid UUID;
-BEGIN
-SELECT uuid
-INTO default_uuid
-FROM status
-WHERE internal_value = 'active'
-  AND type = 'category_staus';
+        default_uuid UUID;
+    BEGIN
+        SELECT uuid
+        INTO default_uuid
+        FROM status
+        WHERE internal_value = 'active'
+          AND type = 'category_staus';
 
-EXECUTE format('ALTER TABLE category ALTER COLUMN status_uuid SET DEFAULT %L', default_uuid);
-END
+        EXECUTE format('ALTER TABLE category ALTER COLUMN status_uuid SET DEFAULT %L', default_uuid);
+    END
 $$;
 
 alter table category
@@ -31,20 +31,20 @@ alter table category
 DO
 $$
     DECLARE
-default_uuid UUID;
-BEGIN
-SELECT uuid
-INTO default_uuid
-FROM status
-WHERE internal_value = 'unapproved'
-  AND type = 'user_status';
+        default_uuid UUID;
+    BEGIN
+        SELECT uuid
+        INTO default_uuid
+        FROM status
+        WHERE internal_value = 'unapproved'
+          AND type = 'user_status';
 
-EXECUTE format('ALTER TABLE sys_user ALTER COLUMN status_uuid SET DEFAULT %L', default_uuid);
+        EXECUTE format('ALTER TABLE sys_user ALTER COLUMN status_uuid SET DEFAULT %L', default_uuid);
 
-UPDATE sys_user
-SET status_uuid = default_uuid
-WHERE status_uuid IS NULL;
-END
+        UPDATE sys_user
+        SET status_uuid = default_uuid
+        WHERE status_uuid IS NULL;
+    END
 $$;
 
 alter table sys_user
@@ -53,17 +53,17 @@ alter table sys_user
 DO
 $$
     DECLARE
-default_uuid UUID;
-BEGIN
-SELECT uuid
-INTO default_uuid
-FROM status
-WHERE internal_value = 'unapproved'
-  AND type = 'achievement_status';
+        default_uuid UUID;
+    BEGIN
+        SELECT uuid
+        INTO default_uuid
+        FROM status
+        WHERE internal_value = 'unapproved'
+          AND type = 'achievement_status';
 
-EXECUTE format('ALTER TABLE achievement ALTER COLUMN status_uuid SET DEFAULT %L', default_uuid);
+        EXECUTE format('ALTER TABLE achievement ALTER COLUMN status_uuid SET DEFAULT %L', default_uuid);
 
-END
+    END
 $$;
 
 
@@ -75,14 +75,19 @@ $$;
 
 ALTER TABLE achievement
     ALTER COLUMN status_uuid DROP NOT NULL,
-ALTER COLUMN status_uuid DROP DEFAULT;
+    ALTER
+        COLUMN status_uuid DROP
+        DEFAULT;
 
 ALTER TABLE sys_user
     ALTER COLUMN status_uuid DROP NOT NULL,
-ALTER COLUMN status_uuid DROP DEFAULT;
+    ALTER
+        COLUMN status_uuid DROP
+        DEFAULT;
 
 ALTER TABLE category
-DROP COLUMN status_uuid;
+    DROP
+        COLUMN status_uuid;
 
 DELETE
 FROM status

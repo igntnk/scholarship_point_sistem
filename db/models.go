@@ -5,53 +5,8 @@
 package db
 
 import (
-	"database/sql/driver"
-	"fmt"
-
 	"github.com/jackc/pgx/v5/pgtype"
 )
-
-type SystemUserType string
-
-const (
-	SystemUserTypeStudent SystemUserType = "student"
-	SystemUserTypeAdmin   SystemUserType = "admin"
-)
-
-func (e *SystemUserType) Scan(src interface{}) error {
-	switch s := src.(type) {
-	case []byte:
-		*e = SystemUserType(s)
-	case string:
-		*e = SystemUserType(s)
-	default:
-		return fmt.Errorf("unsupported scan type for SystemUserType: %T", src)
-	}
-	return nil
-}
-
-type NullSystemUserType struct {
-	SystemUserType SystemUserType
-	Valid          bool // Valid is true if SystemUserType is not NULL
-}
-
-// Scan implements the Scanner interface.
-func (ns *NullSystemUserType) Scan(value interface{}) error {
-	if value == nil {
-		ns.SystemUserType, ns.Valid = "", false
-		return nil
-	}
-	ns.Valid = true
-	return ns.SystemUserType.Scan(value)
-}
-
-// Value implements the driver Valuer interface.
-func (ns NullSystemUserType) Value() (driver.Value, error) {
-	if !ns.Valid {
-		return nil, nil
-	}
-	return string(ns.SystemUserType), nil
-}
 
 type AcheivementCategory struct {
 	CategoryUuid    pgtype.UUID
@@ -66,13 +21,38 @@ type Achievement struct {
 	StatusUuid     pgtype.UUID
 }
 
+type AuthGroup struct {
+	Uuid pgtype.UUID
+	Name string
+}
+
+type AuthRole struct {
+	Uuid pgtype.UUID
+	Name string
+}
+
 type Category struct {
 	Uuid           pgtype.UUID
 	Name           string
 	PointAmount    pgtype.Numeric
 	ParentCategory pgtype.UUID
 	Comment        pgtype.Text
-	StatusUuid     string
+	StatusUuid     pgtype.UUID
+}
+
+type GroupResource struct {
+	GroupUuid    pgtype.UUID
+	ResourceUuid pgtype.UUID
+}
+
+type Resource struct {
+	Uuid  pgtype.UUID
+	Value pgtype.Text
+}
+
+type RoleGroup struct {
+	RoleUuid  pgtype.UUID
+	GroupUuid pgtype.UUID
 }
 
 type Status struct {
@@ -92,5 +72,10 @@ type SysUser struct {
 	Email           pgtype.Text
 	PhoneNumber     pgtype.Text
 	StatusUuid      pgtype.UUID
-	Type            NullSystemUserType
+	Password        pgtype.Text
+}
+
+type UserRole struct {
+	UserUuid pgtype.UUID
+	RoleUuid pgtype.UUID
 }

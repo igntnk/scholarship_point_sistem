@@ -14,7 +14,7 @@ import (
 const createCategory = `-- name: CreateCategory :one
 insert into category (name, point_amount, parent_category, comment)
 values ($1, $2, $3, $4)
-    returning uuid
+returning uuid
 `
 
 type CreateCategoryParams struct {
@@ -36,12 +36,50 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 	return uuid, err
 }
 
-const getCategoryByName = `-- name: GetCategoryByName :one
-select uuid, name, point_amount, parent_category, comment, status_uuid from category where name = $1
+const deleteCategory = `-- name: DeleteCategory :exec
+delete
+from category
+where uuid = $1
 `
 
-func (q *Queries) GetCategoryByName(ctx context.Context, name string) (Category, error) {
-	row := q.db.QueryRow(ctx, getCategoryByName, name)
+func (q *Queries) DeleteCategory(ctx context.Context, uuid pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteCategory, uuid)
+	return err
+}
+
+const getCategoryByNameAndParentNull = `-- name: GetCategoryByNameAndParentNull :one
+select uuid, name, point_amount, parent_category, comment, status_uuid
+from category
+where name = $1 and parent_category is null
+`
+
+func (q *Queries) GetCategoryByNameAndParentNull(ctx context.Context, name string) (Category, error) {
+	row := q.db.QueryRow(ctx, getCategoryByNameAndParentNull, name)
+	var i Category
+	err := row.Scan(
+		&i.Uuid,
+		&i.Name,
+		&i.PointAmount,
+		&i.ParentCategory,
+		&i.Comment,
+		&i.StatusUuid,
+	)
+	return i, err
+}
+
+const getCategoryByNameAndParentUUID = `-- name: GetCategoryByNameAndParentUUID :one
+select uuid, name, point_amount, parent_category, comment, status_uuid
+from category
+where name = $1 and parent_category = $2
+`
+
+type GetCategoryByNameAndParentUUIDParams struct {
+	Name           string
+	ParentCategory pgtype.UUID
+}
+
+func (q *Queries) GetCategoryByNameAndParentUUID(ctx context.Context, arg GetCategoryByNameAndParentUUIDParams) (Category, error) {
+	row := q.db.QueryRow(ctx, getCategoryByNameAndParentUUID, arg.Name, arg.ParentCategory)
 	var i Category
 	err := row.Scan(
 		&i.Uuid,
@@ -55,48 +93,66 @@ func (q *Queries) GetCategoryByName(ctx context.Context, name string) (Category,
 }
 
 const getCategoryByUUID = `-- name: GetCategoryByUUID :one
-select uuid, name, point_amount, parent_category, comment, status_uuid from category where uuid = $1
+select c.uuid, c.name, c.point_amount, c.parent_category, c.comment, s.display_value
+from category c
+         join status s on c.status_uuid = s.uuid and type = 'category_status'
+where c.uuid = $1
 `
 
-func (q *Queries) GetCategoryByUUID(ctx context.Context, uuid pgtype.UUID) (Category, error) {
+type GetCategoryByUUIDRow struct {
+	Uuid           pgtype.UUID
+	Name           string
+	PointAmount    pgtype.Numeric
+	ParentCategory pgtype.UUID
+	Comment        pgtype.Text
+	DisplayValue   pgtype.Text
+}
+
+func (q *Queries) GetCategoryByUUID(ctx context.Context, uuid pgtype.UUID) (GetCategoryByUUIDRow, error) {
 	row := q.db.QueryRow(ctx, getCategoryByUUID, uuid)
-	var i Category
+	var i GetCategoryByUUIDRow
 	err := row.Scan(
 		&i.Uuid,
 		&i.Name,
 		&i.PointAmount,
 		&i.ParentCategory,
 		&i.Comment,
-		&i.StatusUuid,
+		&i.DisplayValue,
 	)
 	return i, err
 }
 
 const listCategories = `-- name: ListCategories :many
-select uuid, name, point_amount, parent_category, comment, status_uuid from category limit $1 offset $2
+select c.uuid, c.name, c.point_amount, c.parent_category, c.comment, s.display_value
+from category c
+         join status s on c.status_uuid = s.uuid and type = 'category_status'
 `
 
-type ListCategoriesParams struct {
-	Limit  int32
-	Offset int32
+type ListCategoriesRow struct {
+	Uuid           pgtype.UUID
+	Name           string
+	PointAmount    pgtype.Numeric
+	ParentCategory pgtype.UUID
+	Comment        pgtype.Text
+	DisplayValue   pgtype.Text
 }
 
-func (q *Queries) ListCategories(ctx context.Context, arg ListCategoriesParams) ([]Category, error) {
-	rows, err := q.db.Query(ctx, listCategories, arg.Limit, arg.Offset)
+func (q *Queries) ListCategories(ctx context.Context) ([]ListCategoriesRow, error) {
+	rows, err := q.db.Query(ctx, listCategories)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Category
+	var items []ListCategoriesRow
 	for rows.Next() {
-		var i Category
+		var i ListCategoriesRow
 		if err := rows.Scan(
 			&i.Uuid,
 			&i.Name,
 			&i.PointAmount,
 			&i.ParentCategory,
 			&i.Comment,
-			&i.StatusUuid,
+			&i.DisplayValue,
 		); err != nil {
 			return nil, err
 		}
@@ -106,4 +162,82 @@ func (q *Queries) ListCategories(ctx context.Context, arg ListCategoriesParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const listCategoriesWithPagination = `-- name: ListCategoriesWithPagination :many
+select c.uuid, c.name, c.point_amount, c.parent_category, c.comment, s.display_value, count(c.uuid) over() as total_amount
+from category c
+         join status s on c.status_uuid = s.uuid and type = 'category_status'
+limit $1 offset $2
+`
+
+type ListCategoriesWithPaginationParams struct {
+	Limit  int32
+	Offset int32
+}
+
+type ListCategoriesWithPaginationRow struct {
+	Uuid           pgtype.UUID
+	Name           string
+	PointAmount    pgtype.Numeric
+	ParentCategory pgtype.UUID
+	Comment        pgtype.Text
+	DisplayValue   pgtype.Text
+	TotalAmount    int64
+}
+
+func (q *Queries) ListCategoriesWithPagination(ctx context.Context, arg ListCategoriesWithPaginationParams) ([]ListCategoriesWithPaginationRow, error) {
+	rows, err := q.db.Query(ctx, listCategoriesWithPagination, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCategoriesWithPaginationRow
+	for rows.Next() {
+		var i ListCategoriesWithPaginationRow
+		if err := rows.Scan(
+			&i.Uuid,
+			&i.Name,
+			&i.PointAmount,
+			&i.ParentCategory,
+			&i.Comment,
+			&i.DisplayValue,
+			&i.TotalAmount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateCategory = `-- name: UpdateCategory :exec
+update category
+set name         = $1,
+    point_amount = $2,
+    comment = $3,
+    status_uuid  = (select s.uuid from status s where s.display_value = $4 and s.type = 'category_status')
+where category.uuid = $5
+`
+
+type UpdateCategoryParams struct {
+	Name         string
+	PointAmount  pgtype.Numeric
+	Comment      pgtype.Text
+	DisplayValue pgtype.Text
+	Uuid         pgtype.UUID
+}
+
+func (q *Queries) UpdateCategory(ctx context.Context, arg UpdateCategoryParams) error {
+	_, err := q.db.Exec(ctx, updateCategory,
+		arg.Name,
+		arg.PointAmount,
+		arg.Comment,
+		arg.DisplayValue,
+		arg.Uuid,
+	)
+	return err
 }
