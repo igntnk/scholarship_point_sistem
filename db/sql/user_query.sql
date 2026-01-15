@@ -21,3 +21,26 @@ limit $1 offset $2;
 select * from sys_user u
                   join status s on u.status_uuid = s.uuid and s.type = 'user_status'
 where u.gradebook_number = $1 and s.internal_value = 'approved';
+
+-- name: UpdateUserInfoWithoutGradeBook :exec
+update sys_user
+set name         = $1,
+    second_name  = $2,
+    patronymic   = $3,
+    birth_date   = $4,
+    phone_number = $5,
+    email        = $6
+where uuid = $7;
+
+-- name: UpdateUserInfoWithGradeBook :exec
+update sys_user
+set name             = $1,
+    second_name      = $2,
+    patronymic       = $3,
+
+    birth_date       = $4,
+    phone_number     = $5,
+    email            = $6,
+    gradebook_number = $7,
+    status_uuid      = (select status.uuid from status where internal_value = 'unapproved' and type = 'user_status')
+where sys_user.uuid = $8;

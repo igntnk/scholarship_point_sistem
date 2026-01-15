@@ -19,6 +19,10 @@ type Config struct {
 	Server struct {
 		RESTPort int `mapstructure:"rest_port"`
 	} `yaml:"server" mapstructure:"server"`
+	Secure struct {
+		PasswordPepper     string `mapstructure:"password_pepper"`
+		PasswordBcryptCost int    `mapstructure:"password_bcrypt_cost"`
+	} `yaml:"secure" mapstructure:"secure"`
 }
 
 func Get(logger zerolog.Logger) *Config {
