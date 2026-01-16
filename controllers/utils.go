@@ -22,3 +22,21 @@ func processHttpError(c *gin.Context, err error) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}
 }
+
+func createResponse(data any) gin.H {
+	return gin.H{
+		"data": data,
+	}
+}
+
+func createResponseWithPagination[T any](data []T, limit, offset, totalRecords int) gin.H {
+	return gin.H{
+		"data": data,
+		"pagination": gin.H{
+			"total_records": totalRecords,
+			"limit":         limit,
+			"offset":        offset,
+			"selected":      len(data),
+		},
+	}
+}

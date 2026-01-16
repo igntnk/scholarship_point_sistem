@@ -55,14 +55,30 @@ func main() {
 
 	conn := trmpgx.DefaultCtxGetter.DefaultTrOrDB(mainCtx, pool)
 
+	// Permission Login
+	permissionRepo := repository.NewPermissionRepository(conn)
+	permissionService := service.NewPermissionService(permissionRepo)
+	permissionController := controllers.NewPermissionController(permissionService)
+
 	// Category Logic
 	categoryRepo := repository.NewCategoryRepository(conn)
 	orderService := service.NewCategoryService(categoryRepo)
 	orderController := controllers.NewCategoryController(orderService)
 
-	httpServer, err := web.New(logger, cfg.Server.RESTPort, orderController)
+	httpServer, err := web.New(
+		logger,
+		cfg.Server.RESTPort,
+		orderController,
+		permissionController,
+	)
 	if err != nil {
 		logger.Fatal().Err(err).Send()
+		return
+	}
+
+	err = permissionService.ReloadActiveResources(mainCtx, httpServer.Routes())
+	if err != nil {
+		logger.Fatal().Err(err).Msg("failed to reload active resources")
 		return
 	}
 

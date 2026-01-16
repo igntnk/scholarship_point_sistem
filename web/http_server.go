@@ -37,6 +37,7 @@ func New(logger zerolog.Logger, port int,
 
 type HttpServer interface {
 	ListenAndServe() error
+	Routes() gin.RoutesInfo
 	Shutdown(ctx context.Context) error
 }
 
@@ -46,4 +47,8 @@ func (h *httpServer) ListenAndServe() error {
 
 func (h *httpServer) Shutdown(ctx context.Context) error {
 	return h.srv.Shutdown(ctx)
+}
+
+func (h *httpServer) Routes() gin.RoutesInfo {
+	return h.Router.Routes()
 }

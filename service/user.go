@@ -11,10 +11,7 @@ import (
 	"github.com/igntnk/scholarship_point_system/service/models"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"golang.org/x/crypto/bcrypt"
 	"time"
-	"unicode"
-	"unicode/utf8"
 )
 
 type UserService interface {
@@ -26,20 +23,17 @@ type UserService interface {
 }
 
 type userService struct {
-	userRepo           repository.UserRepository
-	passwordPepper     string
-	passwordBcryptCost int
+	userRepo        repository.UserRepository
+	passwordManager PasswordManager
 }
 
 func NewUserService(
 	userRepo repository.UserRepository,
-	passwordPepper string,
-	passwordBcryptCost int,
+	passwordManager PasswordManager,
 ) UserService {
 	return &userService{
-		userRepo:           userRepo,
-		passwordPepper:     passwordPepper,
-		passwordBcryptCost: passwordBcryptCost,
+		userRepo:        userRepo,
+		passwordManager: passwordManager,
 	}
 }
 
@@ -62,52 +56,26 @@ func (s *userService) CreateUser(ctx context.Context, user requests.CreateUser) 
 		return "", errors.Join(validation.WrongInputErr, errors.New("Отсуствует номер зачетной книжки"))
 	}
 
-	pgBDate, err := repository.ParseToPgDate(user.BirthDate)
-	if err != nil {
-		return "", errors.Join(errors.Join(validation.WrongInputErr, err), errors.New("Не получилось достать дату рождения"))
+	if err = s.passwordManager.ValidatePassword(user.Password); err != nil {
+		return "", errors.Join(validation.WrongInputErr, err)
 	}
 
-	pgPatronymic, err := repository.ParseToPgText(user.Patronymic)
-	if err != nil {
-		return "", errors.Join(errors.Join(validation.WrongInputErr, err), errors.New("Не получилось достать отчество"))
-	}
-
-	pgEmail, err := repository.ParseToPgText(user.Email)
-	if err != nil {
-		return "", errors.Join(errors.Join(validation.WrongInputErr, err), errors.New("Не получилось достать email"))
-	}
-
-	pgPhoneNumber, err := repository.ParseToPgText(user.PhoneNumber)
-	if err != nil {
-		return "", errors.Join(errors.Join(validation.WrongInputErr, err), errors.New("Не получилось достать номер телефона"))
-	}
-
-	hashedPassword, err := s.ProcessPassword(user.Password)
+	hashedPassword, salt, err := s.passwordManager.HashPassword(user.Password)
 	if err != nil {
 		return "", err
 	}
 
-	pgPassword, err := repository.ParseToPgText(hashedPassword)
-	if err != nil {
-		return "", errors.Join(errors.Join(unexpected.InternalErr, err))
-	}
-
-	args := db.CreateUserParams{
+	return s.userRepo.CreateUser(ctx, models.UserWithCredentials{
 		Name:            user.Name,
 		SecondName:      user.SecondName,
-		Patronymic:      pgPatronymic,
-		GradebookNumber: user.GradebookNumber,
-		BirthDate:       pgBDate,
-		Email:           pgEmail,
-		PhoneNumber:     pgPhoneNumber,
-		Password:        pgPassword,
-	}
-	pgUuid, err := s.userRepo.CreateUser(ctx, args)
-	if err != nil {
-		return "", errors.Join(errors.Join(unexpected.RequestErr, err))
-	}
-
-	return pgUuid.String(), nil
+		Patronymic:      user.Patronymic,
+		GradeBookNumber: user.GradebookNumber,
+		BirthDate:       user.BirthDate,
+		Email:           user.Email,
+		PhoneNumber:     user.PhoneNumber,
+		HashedPassword:  hashedPassword,
+		Salt:            salt,
+	})
 }
 
 func (s *userService) GetSimpleUserList(ctx context.Context) ([]models.SimpleUser, error) {
@@ -169,29 +137,7 @@ func (s *userService) GetSimpleUserListWithPagination(ctx context.Context, limit
 }
 
 func (s *userService) GetSimpleUserByUUID(ctx context.Context, uuid string) (models.SimpleUser, error) {
-	pgUuid := pgtype.UUID{}
-	if err := pgUuid.Scan(uuid); err != nil {
-		return models.SimpleUser{}, errors.Join(err, validation.WrongInputErr)
-	}
-
-	dbUser, err := s.userRepo.GetSimpleUserByUUID(ctx, pgUuid)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return models.SimpleUser{}, validation.NoDataFoundErr
-		}
-		return models.SimpleUser{}, errors.Join(err, unexpected.RequestErr)
-	}
-
-	return models.SimpleUser{
-		UUID:            dbUser.Uuid.String(),
-		Name:            dbUser.Name,
-		SecondName:      dbUser.SecondName,
-		Patronymic:      dbUser.Patronymic.String,
-		GradeBookNumber: dbUser.GradebookNumber,
-		BirthDate:       dbUser.BirthDate.Time.Format(time.RFC3339),
-		Email:           dbUser.Email.String,
-		PhoneNumber:     dbUser.PhoneNumber.String,
-	}, nil
+	return s.userRepo.GetSimpleUserByUUID(ctx, uuid)
 }
 
 func (s *userService) UpdateUser(ctx context.Context, user requests.UpdateUser) error {
@@ -200,7 +146,7 @@ func (s *userService) UpdateUser(ctx context.Context, user requests.UpdateUser) 
 	if err := pgUuid.Scan(user.UUID); err != nil {
 		return errors.Join(err, validation.WrongInputErr)
 	}
-	existingUser, err := s.userRepo.GetSimpleUserByUUID(ctx, pgUuid)
+	existingUser, err := s.userRepo.GetSimpleUserByUUID(ctx, user.UUID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return validation.NoDataFoundErr
@@ -226,7 +172,7 @@ func (s *userService) UpdateUser(ctx context.Context, user requests.UpdateUser) 
 	}
 
 	// Изменение Gradebook приводит к сбросу статуса пользователя
-	if user.GradebookNumber != existingUser.GradebookNumber {
+	if user.GradebookNumber != existingUser.GradeBookNumber {
 		args := db.UpdateUserInfoWithGradeBookParams{
 			Name:            user.Name,
 			SecondName:      user.SecondName,
@@ -256,53 +202,4 @@ func (s *userService) UpdateUser(ctx context.Context, user requests.UpdateUser) 
 		return errors.Join(err, unexpected.RequestErr)
 	}
 	return nil
-}
-
-func (s *userService) ProcessPassword(password string) (hashedPassword string, err error) {
-	if err = validatePassword(password); err != nil {
-		return "", errors.Join(validation.WrongInputErr, err)
-	}
-
-	password += s.passwordPepper
-	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(password), s.passwordBcryptCost)
-	if err != nil {
-		return "", errors.Join(errors.Join(validation.WrongInputErr, err), errors.New("Ошибка в обработке пароля"))
-	}
-
-	return string(hashedPasswordBytes), nil
-}
-
-func validatePassword(password string) error {
-	if password == "" {
-		return errors.New("Пароль обязателен для создания пользователя")
-	}
-	if utf8.RuneCountInString(password) < 8 {
-		return errors.New("Пароль должен быть не менее 8 символов")
-	}
-	if hasNoUppercase(password) {
-		return errors.New("Пароль должен иметь заглавные буквы")
-	}
-	if hasNoDigits(password) {
-		return errors.New("Пароль должен иметь цифры")
-	}
-
-	return nil
-}
-
-func hasNoUppercase(s string) bool {
-	for _, r := range s {
-		if unicode.IsUpper(r) {
-			return false
-		}
-	}
-	return true
-}
-
-func hasNoDigits(s string) bool {
-	for _, r := range s {
-		if unicode.IsDigit(r) {
-			return false
-		}
-	}
-	return true
 }

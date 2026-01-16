@@ -1,6 +1,6 @@
 -- name: CreateUser :one
-insert into sys_user(name, second_name, patronymic, gradebook_number, birth_date, email, phone_number, password)
-values ($1, $2, $3, $4, $5, $6, $7, $8)
+insert into sys_user(name, second_name, patronymic, gradebook_number, birth_date, email, phone_number, password, salt)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 returning uuid;
 
 -- name: GetSimpleUserByUUID :one
@@ -37,7 +37,6 @@ update sys_user
 set name             = $1,
     second_name      = $2,
     patronymic       = $3,
-
     birth_date       = $4,
     phone_number     = $5,
     email            = $6,

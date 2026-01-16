@@ -59,7 +59,7 @@ func (c categoryController) Create(context *gin.Context) {
 	}
 
 	response := responses.CreateCategory{Uuid: uuid}
-	context.JSON(http.StatusOK, gin.H{"data": response})
+	context.JSON(http.StatusOK, createResponse(response))
 	return
 }
 
@@ -78,7 +78,7 @@ func (c categoryController) GetByUUID(context *gin.Context) {
 		return
 	}
 
-	context.JSON(http.StatusOK, gin.H{"data": category})
+	context.JSON(http.StatusOK, createResponse(category))
 }
 
 func (c categoryController) GetCategories(context *gin.Context) {
@@ -98,9 +98,7 @@ func (c categoryController) GetCategories(context *gin.Context) {
 		if err != nil {
 			return
 		}
-		context.JSON(http.StatusOK, gin.H{
-			"data": categories,
-		})
+		context.JSON(http.StatusOK, createResponse(categories))
 		return
 	}
 	strOffset := queries.Get("offset")
@@ -123,15 +121,7 @@ func (c categoryController) GetCategories(context *gin.Context) {
 		return
 	}
 
-	context.JSON(http.StatusOK, gin.H{
-		"data": categories,
-		"pagination": gin.H{
-			"total_records": totalRecords,
-			"limit":         limit,
-			"offset":        offset,
-			"selected":      len(categories),
-		},
-	})
+	context.JSON(http.StatusOK, createResponseWithPagination(categories, limit, offset, totalRecords))
 }
 
 func (c categoryController) DeleteCategory(context *gin.Context) {
@@ -147,7 +137,7 @@ func (c categoryController) DeleteCategory(context *gin.Context) {
 		return
 	}
 
-	context.JSON(http.StatusOK, gin.H{"data": "Запись успешно удалена"})
+	context.JSON(http.StatusOK, createResponse("Запись успешно удалена"))
 }
 
 func (c categoryController) Update(context *gin.Context) {
@@ -155,7 +145,7 @@ func (c categoryController) Update(context *gin.Context) {
 
 	defer func() {
 		if err != nil {
-			context.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			processHttpError(context, err)
 		}
 	}()
 
@@ -172,5 +162,5 @@ func (c categoryController) Update(context *gin.Context) {
 		return
 	}
 
-	context.JSON(http.StatusOK, gin.H{"data": "Запись успешно обновлена"})
+	context.JSON(http.StatusOK, createResponse("Запись успешно обновлена"))
 }

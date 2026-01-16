@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+func ParseToPgUUID(input string) (pgtype.UUID, error) {
+	pgUUID := pgtype.UUID{}
+	err := pgUUID.Scan(input)
+	return pgUUID, err
+}
+
 func ParseToPgText(input any) (pgtype.Text, error) {
 	pgText := pgtype.Text{}
 

@@ -12,8 +12,8 @@ import (
 )
 
 const createUser = `-- name: CreateUser :one
-insert into sys_user(name, second_name, patronymic, gradebook_number, birth_date, email, phone_number, password)
-values ($1, $2, $3, $4, $5, $6, $7, $8)
+insert into sys_user(name, second_name, patronymic, gradebook_number, birth_date, email, phone_number, password, salt)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 returning uuid
 `
 
@@ -26,6 +26,7 @@ type CreateUserParams struct {
 	Email           pgtype.Text
 	PhoneNumber     pgtype.Text
 	Password        pgtype.Text
+	Salt            pgtype.Text
 }
 
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.UUID, error) {
@@ -38,6 +39,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.
 		arg.Email,
 		arg.PhoneNumber,
 		arg.Password,
+		arg.Salt,
 	)
 	var uuid pgtype.UUID
 	err := row.Scan(&uuid)
@@ -45,7 +47,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (pgtype.
 }
 
 const getApprovedUserByGradeBookNumber = `-- name: GetApprovedUserByGradeBookNumber :one
-select u.uuid, name, second_name, patronymic, gradebook_number, birth_date, email, phone_number, status_uuid, password, s.uuid, internal_value, display_value, type from sys_user u
+select u.uuid, name, second_name, patronymic, gradebook_number, birth_date, email, phone_number, status_uuid, password, salt, s.uuid, internal_value, display_value, type from sys_user u
                   join status s on u.status_uuid = s.uuid and s.type = 'user_status'
 where u.gradebook_number = $1 and s.internal_value = 'approved'
 `
@@ -61,6 +63,7 @@ type GetApprovedUserByGradeBookNumberRow struct {
 	PhoneNumber     pgtype.Text
 	StatusUuid      pgtype.UUID
 	Password        pgtype.Text
+	Salt            pgtype.Text
 	Uuid_2          pgtype.UUID
 	InternalValue   pgtype.Text
 	DisplayValue    pgtype.Text
@@ -81,6 +84,7 @@ func (q *Queries) GetApprovedUserByGradeBookNumber(ctx context.Context, gradeboo
 		&i.PhoneNumber,
 		&i.StatusUuid,
 		&i.Password,
+		&i.Salt,
 		&i.Uuid_2,
 		&i.InternalValue,
 		&i.DisplayValue,
@@ -90,7 +94,7 @@ func (q *Queries) GetApprovedUserByGradeBookNumber(ctx context.Context, gradeboo
 }
 
 const getSimpleUserByUUID = `-- name: GetSimpleUserByUUID :one
-select uuid, name, second_name, patronymic, gradebook_number, birth_date, email, phone_number, status_uuid, password
+select uuid, name, second_name, patronymic, gradebook_number, birth_date, email, phone_number, status_uuid, password, salt
 from sys_user
 where uuid = $1
 `
@@ -109,12 +113,13 @@ func (q *Queries) GetSimpleUserByUUID(ctx context.Context, uuid pgtype.UUID) (Sy
 		&i.PhoneNumber,
 		&i.StatusUuid,
 		&i.Password,
+		&i.Salt,
 	)
 	return i, err
 }
 
 const getSimpleUserList = `-- name: GetSimpleUserList :many
-select uuid, name, second_name, patronymic, gradebook_number, birth_date, email, phone_number, status_uuid, password
+select uuid, name, second_name, patronymic, gradebook_number, birth_date, email, phone_number, status_uuid, password, salt
 from sys_user
 `
 
@@ -138,6 +143,7 @@ func (q *Queries) GetSimpleUserList(ctx context.Context) ([]SysUser, error) {
 			&i.PhoneNumber,
 			&i.StatusUuid,
 			&i.Password,
+			&i.Salt,
 		); err != nil {
 			return nil, err
 		}
@@ -150,7 +156,7 @@ func (q *Queries) GetSimpleUserList(ctx context.Context) ([]SysUser, error) {
 }
 
 const getSimpleUserListWithPagination = `-- name: GetSimpleUserListWithPagination :many
-select uuid, name, second_name, patronymic, gradebook_number, birth_date, email, phone_number, status_uuid, password, count(*) over() as total_amount
+select uuid, name, second_name, patronymic, gradebook_number, birth_date, email, phone_number, status_uuid, password, salt, count(*) over() as total_amount
 from sys_user
 limit $1 offset $2
 `
@@ -171,6 +177,7 @@ type GetSimpleUserListWithPaginationRow struct {
 	PhoneNumber     pgtype.Text
 	StatusUuid      pgtype.UUID
 	Password        pgtype.Text
+	Salt            pgtype.Text
 	TotalAmount     int64
 }
 
@@ -194,6 +201,7 @@ func (q *Queries) GetSimpleUserListWithPagination(ctx context.Context, arg GetSi
 			&i.PhoneNumber,
 			&i.StatusUuid,
 			&i.Password,
+			&i.Salt,
 			&i.TotalAmount,
 		); err != nil {
 			return nil, err
@@ -211,7 +219,6 @@ update sys_user
 set name             = $1,
     second_name      = $2,
     patronymic       = $3,
-
     birth_date       = $4,
     phone_number     = $5,
     email            = $6,

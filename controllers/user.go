@@ -47,9 +47,7 @@ func (c userController) GetSimpleUserList(context *gin.Context) {
 			return
 		}
 
-		context.JSON(http.StatusOK, gin.H{
-			"data": users,
-		})
+		context.JSON(http.StatusOK, createResponse(users))
 		return
 	}
 
@@ -73,15 +71,7 @@ func (c userController) GetSimpleUserList(context *gin.Context) {
 		return
 	}
 
-	context.JSON(http.StatusOK, gin.H{
-		"data": users,
-		"pagination": gin.H{
-			"total_records": totalRecords,
-			"limit":         limit,
-			"offset":        offset,
-			"selected":      len(users),
-		},
-	})
+	context.JSON(http.StatusOK, createResponseWithPagination(users, limit, offset, totalRecords))
 }
 
 func (c userController) GetSimpleUserByUUID(context *gin.Context) {
@@ -100,7 +90,7 @@ func (c userController) GetSimpleUserByUUID(context *gin.Context) {
 		return
 	}
 
-	context.JSON(http.StatusOK, gin.H{"data": user})
+	context.JSON(http.StatusOK, createResponse(user))
 }
 
 func (c userController) CreateUser(context *gin.Context) {
@@ -123,7 +113,7 @@ func (c userController) CreateUser(context *gin.Context) {
 		return
 	}
 
-	context.JSON(http.StatusOK, gin.H{"data": uuid})
+	context.JSON(http.StatusOK, createResponse(uuid))
 }
 
 func (c userController) UpdateUser(context *gin.Context) {
@@ -148,5 +138,5 @@ func (c userController) UpdateUser(context *gin.Context) {
 		return
 	}
 
-	context.JSON(http.StatusOK, gin.H{"data": "Информация о пользователе успешно обновлена"})
+	context.JSON(http.StatusOK, createResponse("Информация о пользователе успешно обновлена"))
 }

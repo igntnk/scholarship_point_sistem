@@ -73,6 +73,7 @@ type SysUser struct {
 	PhoneNumber     pgtype.Text
 	StatusUuid      pgtype.UUID
 	Password        pgtype.Text
+	Salt            pgtype.Text
 }
 
 type UserRole struct {

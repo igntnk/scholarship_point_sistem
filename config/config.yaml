@@ -3,7 +3,6 @@ server:
 database:
   uri: ""
 secure:
-  password_pepper: ""
   password_bcrypt_cost: 0
 
 
