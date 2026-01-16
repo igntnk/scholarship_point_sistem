@@ -80,6 +80,10 @@ func (r *permissionRepository) RemoveAndCreateResources(ctx context.Context, cre
 		}
 	}
 
+	if len(pgCreate) == 0 && len(pgRemove) == 0 {
+		return nil
+	}
+
 	tx, err := r.txCreator.CreateTx(ctx)
 	if err != nil {
 		return errors.Join(err, unexpected.RequestErr)
@@ -271,12 +275,14 @@ func (r *permissionRepository) UpdateRoleWithMembers(ctx context.Context, role m
 		}
 	}
 
-	batch := qtx.AddUsersToRole(ctx, addMemberParams)
-	batch.Exec(func(i int, e error) {
-		err = errors.Join(err, e)
-	})
-	if err != nil {
-		return errors.Join(err, unexpected.RequestErr)
+	if len(addMemberParams) > 0 {
+		batch := qtx.AddUsersToRole(ctx, addMemberParams)
+		batch.Exec(func(i int, e error) {
+			err = errors.Join(err, e)
+		})
+		if err != nil {
+			return errors.Join(err, unexpected.RequestErr)
+		}
 	}
 
 	// Remove Members from Role
@@ -288,8 +294,10 @@ func (r *permissionRepository) UpdateRoleWithMembers(ctx context.Context, role m
 		}
 		deleteMemberParams[i] = pgMemberUUID
 	}
-	if err = qtx.RemoveMembersFromRole(ctx, deleteMemberParams); err != nil {
-		return errors.Join(err, unexpected.RequestErr)
+	if len(deleteMemberParams) > 0 {
+		if err = qtx.RemoveMembersFromRole(ctx, deleteMemberParams); err != nil {
+			return errors.Join(err, unexpected.RequestErr)
+		}
 	}
 
 	if err = tx.Commit(ctx); err != nil {
@@ -334,12 +342,15 @@ func (r *permissionRepository) UpdateGroupWithRolesAndResources(ctx context.Cont
 			GroupUuid: pgGroupUUID,
 		}
 	}
-	roleBatch := qtx.AddRolesToGroup(ctx, addRolesParams)
-	roleBatch.Exec(func(i int, e error) {
-		err = errors.Join(err, e)
-	})
-	if err != nil {
-		return errors.Join(err, unexpected.RequestErr)
+
+	if len(addRolesParams) > 0 {
+		roleBatch := qtx.AddRolesToGroup(ctx, addRolesParams)
+		roleBatch.Exec(func(i int, e error) {
+			err = errors.Join(err, e)
+		})
+		if err != nil {
+			return errors.Join(err, unexpected.RequestErr)
+		}
 	}
 
 	// Remove Roles from Group
@@ -351,8 +362,10 @@ func (r *permissionRepository) UpdateGroupWithRolesAndResources(ctx context.Cont
 		}
 		deleteRolesParams[i] = pgRoleUUID
 	}
-	if err = qtx.RemoveRolesFromGroup(ctx, deleteRolesParams); err != nil {
-		return errors.Join(err, unexpected.RequestErr)
+	if len(deleteRolesParams) > 0 {
+		if err = qtx.RemoveRolesFromGroup(ctx, deleteRolesParams); err != nil {
+			return errors.Join(err, unexpected.RequestErr)
+		}
 	}
 
 	// Add Resources to Group
@@ -367,12 +380,14 @@ func (r *permissionRepository) UpdateGroupWithRolesAndResources(ctx context.Cont
 			ResourceUuid: pgResourceUUID,
 		}
 	}
-	groupBatch := qtx.AddResourcesToGroup(ctx, addResourcesParams)
-	groupBatch.Exec(func(i int, e error) {
-		err = errors.Join(err, e)
-	})
-	if err != nil {
-		return errors.Join(err, unexpected.RequestErr)
+	if len(addResourcesParams) > 0 {
+		groupBatch := qtx.AddResourcesToGroup(ctx, addResourcesParams)
+		groupBatch.Exec(func(i int, e error) {
+			err = errors.Join(err, e)
+		})
+		if err != nil {
+			return errors.Join(err, unexpected.RequestErr)
+		}
 	}
 
 	// Remove Resources from Group
@@ -384,8 +399,10 @@ func (r *permissionRepository) UpdateGroupWithRolesAndResources(ctx context.Cont
 		}
 		removeResourcesArg[i] = pgResourceUUID
 	}
-	if err = qtx.RemoveResourcesFromGroup(ctx, removeResourcesArg); err != nil {
-		return errors.Join(err, unexpected.RequestErr)
+	if len(removeResourcesArg) > 0 {
+		if err = qtx.RemoveResourcesFromGroup(ctx, removeResourcesArg); err != nil {
+			return errors.Join(err, unexpected.RequestErr)
+		}
 	}
 
 	if err = tx.Commit(ctx); err != nil {
