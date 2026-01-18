@@ -29,6 +29,12 @@ func NewMiddleware(PermissionService service.PermissionService, jwk jwk.JWKSigne
 }
 
 func (m *middleware) Authorize(c *gin.Context) {
+	m.authorize(c)
+	c.Next()
+	return
+}
+
+func (m *middleware) authorize(c *gin.Context) {
 	authHeader := c.Request.Header.Get("Authorization")
 	t := strings.Split(authHeader, " ")
 	if len(t) != 2 {
@@ -54,7 +60,6 @@ func (m *middleware) Authorize(c *gin.Context) {
 	}
 
 	jwk.WithClaims(c, *claims)
-	c.Next()
 	return
 }
 
@@ -66,7 +71,7 @@ func (m *middleware) checkAccess(c *gin.Context, recursive bool) {
 	claims := jwk.ClaimsFromContext(c)
 	if claims == nil {
 		if recursive {
-			m.Authorize(c)
+			m.authorize(c)
 			m.checkAccess(c, false)
 			return
 		}
@@ -78,7 +83,19 @@ func (m *middleware) checkAccess(c *gin.Context, recursive bool) {
 		return
 	}
 
-	path := c.Request.URL.Path
-	hasAccess, err := m.PermissionService.CheckUserHasPermission(c, claims.User.UUID)
+	if !claims.IsAdmin {
+		path := c.Request.URL.Path
+		hasAccess, err := m.PermissionService.CheckUserHasPermission(c, claims.User.UUID, path)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": authorization.UnauthorizedErr.Error()})
+			return
+		}
 
+		if !hasAccess {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": authorization.HasNoPermissionErr.Error()})
+			return
+		}
+	}
+
+	c.Next()
 }

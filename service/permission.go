@@ -3,21 +3,29 @@ package service
 import (
 	"context"
 	"errors"
-	"github.com/gin-gonic/gin"
 	"github.com/igntnk/scholarship_point_system/controllers/requests"
 	"github.com/igntnk/scholarship_point_system/controllers/responses"
 	"github.com/igntnk/scholarship_point_system/errors/unexpected"
 	"github.com/igntnk/scholarship_point_system/repository"
 	"github.com/igntnk/scholarship_point_system/service/models"
 	"github.com/jackc/pgx/v5"
-	"regexp"
-	"strings"
-	"unicode/utf8"
+	"gopkg.in/yaml.v3"
+	"os"
+)
+
+type adminGroupRole struct {
+	GroupName string `yaml:"group_name"`
+	RoleName  string `yaml:"role_name"`
+}
+
+const (
+	CacheAdminGroupFile = "./config/perm.yaml"
 )
 
 type PermissionService interface {
 	CheckUserHasPermission(ctx context.Context, userUUID string, url string) (ok bool, err error)
-	ReloadActiveResources(ctx context.Context, routes gin.RoutesInfo) error
+	ActualizeResources(ctx context.Context, resources map[string]struct{}) error
+	ActualizeAdminGroupAndRole(ctx context.Context, adminUUID, groupName, roleName string) error
 	GetResourceList(ctx context.Context) ([]responses.Resource, error)
 	CreateRole(ctx context.Context, role requests.Role) (string, error)
 	CreateGroup(ctx context.Context, group requests.Group) (string, error)
@@ -54,13 +62,7 @@ func (s *permissionService) CheckUserHasPermission(ctx context.Context, userUUID
 	return true, nil
 }
 
-func (s *permissionService) ReloadActiveResources(ctx context.Context, routes gin.RoutesInfo) error {
-
-	resources := map[string]struct{}{}
-
-	for _, route := range routes {
-		resources[unifyRelativePath(route.Path, route.Method)] = struct{}{}
-	}
+func (s *permissionService) ActualizeResources(ctx context.Context, resources map[string]struct{}) error {
 
 	oldResources, err := s.permissionRepo.GetResourceList(ctx)
 	if err != nil {
@@ -85,6 +87,143 @@ func (s *permissionService) ReloadActiveResources(ctx context.Context, routes gi
 	}
 
 	return s.permissionRepo.RemoveAndCreateResources(ctx, createResources, removeResources)
+}
+
+func (s *permissionService) ActualizeAdminGroupAndRole(ctx context.Context, adminUUID, groupName, roleName string) error {
+
+	fileData, err := os.ReadFile(CacheAdminGroupFile)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return errors.Join(err, unexpected.InternalErr, errors.New("can't read permission cache file"))
+		}
+	}
+
+	oldCfg := adminGroupRole{}
+	if err = yaml.Unmarshal(fileData, &oldCfg); err != nil {
+		return errors.Join(err, unexpected.InternalErr, errors.New("can't unmarshal permission cache file"))
+	}
+
+	var roleUUID string
+	if oldCfg.RoleName == "" {
+		roleUUID, err = s.permissionRepo.CreateRole(ctx, models.Role{
+			Name: roleName,
+			Members: []models.RoleMember{
+				{
+					UUID: adminUUID,
+				},
+			},
+		})
+		if err != nil {
+			return err
+		}
+
+		oldCfg.RoleName = roleName
+	}
+
+	if oldCfg.RoleName != roleName {
+		role, err := s.permissionRepo.GetRoleByName(ctx, oldCfg.RoleName)
+		if err != nil {
+			return err
+		}
+
+		roleUUID = role.UUID
+
+		members := make([]requests.RoleMember, 0, len(role.Members)+1)
+		hasAdmin := false
+		for _, member := range role.Members {
+			if member.UUID == adminUUID {
+				hasAdmin = true
+			}
+
+			members = append(members, requests.RoleMember{
+				UUID: member.UUID,
+			})
+		}
+
+		if !hasAdmin {
+			members = append(members, requests.RoleMember{
+				UUID: adminUUID,
+			})
+		}
+
+		reqRole := requests.Role{
+			UUID:    roleUUID,
+			Name:    roleName,
+			Members: members,
+		}
+
+		err = s.UpdateRoleWithMembers(ctx, reqRole)
+		if err != nil {
+			return err
+		}
+
+		oldCfg.RoleName = roleUUID
+	}
+
+	if oldCfg.GroupName == "" {
+		_, err = s.permissionRepo.CreateGroup(ctx, models.Group{
+			Name: roleName,
+			Roles: []models.SimpleRole{
+				{
+					UUID: roleUUID,
+				},
+			},
+		})
+		if err != nil {
+			return err
+		}
+
+		oldCfg.GroupName = groupName
+	}
+
+	if oldCfg.GroupName != groupName {
+		group, err := s.permissionRepo.GetGroupByName(ctx, oldCfg.GroupName)
+		if err != nil {
+			return err
+		}
+
+		roles := make([]requests.Role, 0, len(group.Roles)+1)
+		hasAdmin := false
+		for _, role := range group.Roles {
+			if role.UUID == roleUUID {
+				hasAdmin = true
+			}
+
+			roles = append(roles, requests.Role{
+				UUID: role.UUID,
+			})
+		}
+
+		if !hasAdmin {
+			roles = append(roles, requests.Role{
+				UUID: roleUUID,
+			})
+		}
+
+		reqGroup := requests.Group{
+			UUID:  group.UUID,
+			Name:  groupName,
+			Roles: roles,
+		}
+
+		err = s.UpdateGroupWithRolesAndResources(ctx, reqGroup)
+		if err != nil {
+			return err
+		}
+
+		oldCfg.GroupName = groupName
+	}
+
+	newCfg, err := yaml.Marshal(oldCfg)
+	if err != nil {
+		return errors.Join(err, unexpected.InternalErr, errors.New("can't marshal permission cache file"))
+	}
+	err = os.WriteFile(CacheAdminGroupFile, newCfg, 0600)
+	if err != nil {
+		return errors.Join(err, unexpected.InternalErr, errors.New("can't write permission cache file"))
+	}
+
+	return nil
 }
 
 func (s *permissionService) GetResourceList(ctx context.Context) ([]responses.Resource, error) {
@@ -374,25 +513,4 @@ func (s *permissionService) GetGroupListWithPagination(ctx context.Context, limi
 	}
 
 	return simpleGroups, totalRecords, nil
-}
-
-func unifyRelativePath(path, method string) string {
-	pathBuilder := strings.Builder{}
-	pathBuilder.WriteString(method)
-	pathBuilder.WriteString(" - ")
-
-	if !strings.HasPrefix(path, "/") {
-		pathBuilder.WriteString("/")
-	}
-
-	if strings.HasSuffix(path, "/") {
-		pathBuilder.WriteString(path[:utf8.RuneCountInString(path)-1])
-	} else {
-		pathBuilder.WriteString(path)
-	}
-
-	resultPath := pathBuilder.String()
-
-	re := regexp.MustCompile(`:[^/]+`)
-	return re.ReplaceAllString(resultPath, ":var")
 }

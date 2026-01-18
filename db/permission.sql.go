@@ -92,6 +92,17 @@ func (q *Queries) DeleteRolesFromDeletedGroup(ctx context.Context, groupUuid pgt
 	return err
 }
 
+const getGroupByName = `-- name: GetGroupByName :one
+select uuid, name from auth_group where name = $1
+`
+
+func (q *Queries) GetGroupByName(ctx context.Context, name string) (AuthGroup, error) {
+	row := q.db.QueryRow(ctx, getGroupByName, name)
+	var i AuthGroup
+	err := row.Scan(&i.Uuid, &i.Name)
+	return i, err
+}
+
 const getGroupByUUID = `-- name: GetGroupByUUID :one
 select uuid, name
 from auth_group
@@ -221,6 +232,17 @@ func (q *Queries) GetGroupRoles(ctx context.Context, groupUuid pgtype.UUID) ([]A
 	return items, nil
 }
 
+const getRoleByName = `-- name: GetRoleByName :one
+select uuid, name from auth_role where name = $1
+`
+
+func (q *Queries) GetRoleByName(ctx context.Context, name string) (AuthRole, error) {
+	row := q.db.QueryRow(ctx, getRoleByName, name)
+	var i AuthRole
+	err := row.Scan(&i.Uuid, &i.Name)
+	return i, err
+}
+
 const getRoleByUUID = `-- name: GetRoleByUUID :one
 select uuid, name
 from auth_role
@@ -335,6 +357,49 @@ func (q *Queries) GetRoleMembers(ctx context.Context, roleUuid pgtype.UUID) ([]S
 	return items, nil
 }
 
+const getUserGroups = `-- name: GetUserGroups :many
+select uuid, name, rg.role_uuid, group_uuid, user_uuid, ur.role_uuid from auth_group ag
+    join role_group rg on ag.uuid = rg.group_uuid
+    join user_role ur on ur.role_uuid = rg.role_uuid
+where ur.user_uuid = $1
+`
+
+type GetUserGroupsRow struct {
+	Uuid       pgtype.UUID
+	Name       string
+	RoleUuid   pgtype.UUID
+	GroupUuid  pgtype.UUID
+	UserUuid   pgtype.UUID
+	RoleUuid_2 pgtype.UUID
+}
+
+func (q *Queries) GetUserGroups(ctx context.Context, userUuid pgtype.UUID) ([]GetUserGroupsRow, error) {
+	rows, err := q.db.Query(ctx, getUserGroups, userUuid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetUserGroupsRow
+	for rows.Next() {
+		var i GetUserGroupsRow
+		if err := rows.Scan(
+			&i.Uuid,
+			&i.Name,
+			&i.RoleUuid,
+			&i.GroupUuid,
+			&i.UserUuid,
+			&i.RoleUuid_2,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const removeMembersFromRole = `-- name: RemoveMembersFromRole :exec
 DELETE
 FROM user_role u
@@ -368,6 +433,34 @@ WHERE u.uuid = ids.id
 
 func (q *Queries) RemoveRolesFromGroup(ctx context.Context, dollar_1 []pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, removeRolesFromGroup, dollar_1)
+	return err
+}
+
+const renameGroup = `-- name: RenameGroup :exec
+update auth_group set name = $1 where uuid = $2
+`
+
+type RenameGroupParams struct {
+	Name string
+	Uuid pgtype.UUID
+}
+
+func (q *Queries) RenameGroup(ctx context.Context, arg RenameGroupParams) error {
+	_, err := q.db.Exec(ctx, renameGroup, arg.Name, arg.Uuid)
+	return err
+}
+
+const renameRole = `-- name: RenameRole :exec
+update auth_role set name = $1 where uuid = $2
+`
+
+type RenameRoleParams struct {
+	Name string
+	Uuid pgtype.UUID
+}
+
+func (q *Queries) RenameRole(ctx context.Context, arg RenameRoleParams) error {
+	_, err := q.db.Exec(ctx, renameRole, arg.Name, arg.Uuid)
 	return err
 }
 

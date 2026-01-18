@@ -214,6 +214,29 @@ func (q *Queries) GetSimpleUserListWithPagination(ctx context.Context, arg GetSi
 	return items, nil
 }
 
+const getUserByEmail = `-- name: GetUserByEmail :one
+select uuid, name, second_name, patronymic, gradebook_number, birth_date, email, phone_number, status_uuid, password, salt from sys_user where email = $1
+`
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email pgtype.Text) (SysUser, error) {
+	row := q.db.QueryRow(ctx, getUserByEmail, email)
+	var i SysUser
+	err := row.Scan(
+		&i.Uuid,
+		&i.Name,
+		&i.SecondName,
+		&i.Patronymic,
+		&i.GradebookNumber,
+		&i.BirthDate,
+		&i.Email,
+		&i.PhoneNumber,
+		&i.StatusUuid,
+		&i.Password,
+		&i.Salt,
+	)
+	return i, err
+}
+
 const updateUserInfoWithGradeBook = `-- name: UpdateUserInfoWithGradeBook :exec
 update sys_user
 set name             = $1,

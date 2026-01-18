@@ -43,3 +43,6 @@ set name             = $1,
     gradebook_number = $7,
     status_uuid      = (select status.uuid from status where internal_value = 'unapproved' and type = 'user_status')
 where sys_user.uuid = $8;
+
+-- name: GetUserByEmail :one
+select * from sys_user where email = $1;

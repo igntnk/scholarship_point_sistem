@@ -21,14 +21,19 @@ type PermissionRepository interface {
 	CreateGroup(ctx context.Context, group models.Group) (string, error)
 	UpdateRoleWithMembers(ctx context.Context, role models.UpdateRole) error
 	UpdateGroupWithRolesAndResources(ctx context.Context, group models.UpdateGroup) error
+	RenameGroup(ctx context.Context, uuid, name string) error
+	RenameRole(ctx context.Context, uuid, name string) error
 	DeleteRole(ctx context.Context, uuid string) error
 	DeleteGroup(ctx context.Context, uuid string) error
 	GetRoleByUUID(ctx context.Context, uuid string) (models.Role, error)
 	GetRoleList(ctx context.Context) ([]models.SimpleRole, error)
 	GetRoleListWithPagination(ctx context.Context, limit, offset int) ([]models.SimpleRole, int, error)
+	GetRoleByName(ctx context.Context, roleName string) (models.Role, error)
 	GetGroupByUUID(ctx context.Context, uuid string) (models.Group, error)
 	GetGroupList(ctx context.Context) ([]models.SimpleGroup, error)
 	GetGroupListWithPagination(ctx context.Context, limit, offset int) ([]models.SimpleGroup, int, error)
+	GetUserGroups(ctx context.Context, userUUID string) ([]models.SimpleGroup, error)
+	GetGroupByName(ctx context.Context, groupName string) (models.Group, error)
 }
 
 type permissionRepository struct {
@@ -36,7 +41,9 @@ type permissionRepository struct {
 	txCreator db.TxCreator
 }
 
-func NewPermissionRepository(pool pgxv5.Tr) PermissionRepository {
+func NewPermissionRepository(
+	pool pgxv5.Tr,
+) PermissionRepository {
 	return &permissionRepository{
 		queries:   db.New(pool),
 		txCreator: db.NewTxCreator(pool),
@@ -412,6 +419,41 @@ func (r *permissionRepository) UpdateGroupWithRolesAndResources(ctx context.Cont
 	return nil
 }
 
+func (r *permissionRepository) RenameGroup(ctx context.Context, uuid, name string) error {
+
+	pgUUID, err := ParseToPgUUID(uuid)
+	if err != nil {
+		return errors.Join(err, parsing.InputDataErr)
+	}
+
+	args := db.RenameGroupParams{
+		Name: name,
+		Uuid: pgUUID,
+	}
+	err = r.queries.RenameGroup(ctx, args)
+	if err != nil {
+		return errors.Join(err, unexpected.RequestErr)
+	}
+	return nil
+}
+
+func (r *permissionRepository) RenameRole(ctx context.Context, uuid, name string) error {
+	pgUUID, err := ParseToPgUUID(uuid)
+	if err != nil {
+		return errors.Join(err, parsing.InputDataErr)
+	}
+
+	args := db.RenameRoleParams{
+		Name: name,
+		Uuid: pgUUID,
+	}
+	err = r.queries.RenameRole(ctx, args)
+	if err != nil {
+		return errors.Join(err, unexpected.RequestErr)
+	}
+	return nil
+}
+
 func (r *permissionRepository) DeleteRole(ctx context.Context, uuid string) error {
 	tx, err := r.txCreator.CreateTx(ctx)
 	if err != nil {
@@ -558,6 +600,40 @@ func (r *permissionRepository) GetRoleListWithPagination(ctx context.Context, li
 	return simpleRoles, totalRecords, nil
 }
 
+func (r *permissionRepository) GetRoleByName(ctx context.Context, roleName string) (models.Role, error) {
+	dbRole, err := r.queries.GetRoleByName(ctx, roleName)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.Role{}, errors.Join(err, parsing.InputDataErr)
+		}
+		return models.Role{}, errors.Join(err, parsing.InputDataErr)
+	}
+
+	dbUsers, err := r.queries.GetRoleMembers(ctx, dbRole.Uuid)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return models.Role{}, errors.Join(err, parsing.InputDataErr)
+		}
+		dbUsers = []db.SysUser{}
+	}
+
+	members := make([]models.RoleMember, len(dbUsers))
+	for i, dbUser := range dbUsers {
+		members[i] = models.RoleMember{
+			UUID:       dbUser.Uuid.String(),
+			Name:       dbUser.Name,
+			SecondName: dbUser.SecondName,
+			Patronymic: dbUser.Patronymic.String,
+		}
+	}
+
+	return models.Role{
+		UUID:    dbRole.Uuid.String(),
+		Name:    dbRole.Name,
+		Members: members,
+	}, nil
+}
+
 func (r *permissionRepository) GetGroupByUUID(ctx context.Context, uuid string) (models.Group, error) {
 	pgUUID, err := ParseToPgUUID(uuid)
 	if err != nil {
@@ -657,4 +733,79 @@ func (r *permissionRepository) GetGroupListWithPagination(ctx context.Context, l
 		}
 	}
 	return simpleGroups, totalRecords, nil
+}
+
+func (r *permissionRepository) GetUserGroups(ctx context.Context, userUUID string) ([]models.SimpleGroup, error) {
+	pgUUID, err := ParseToPgUUID(userUUID)
+	if err != nil {
+		return nil, errors.Join(err, parsing.InputDataErr)
+	}
+
+	dbGroups, err := r.queries.GetUserGroups(ctx, pgUUID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return []models.SimpleGroup{}, errors.Join(err, validation.NoDataFoundErr)
+		}
+		return nil, errors.Join(err, unexpected.RequestErr)
+	}
+
+	simpleGroups := make([]models.SimpleGroup, len(dbGroups))
+	for i, dbGroup := range dbGroups {
+		simpleGroups[i] = models.SimpleGroup{
+			UUID: dbGroup.Uuid.String(),
+			Name: dbGroup.Name,
+		}
+	}
+
+	return simpleGroups, nil
+}
+
+func (r *permissionRepository) GetGroupByName(ctx context.Context, groupName string) (models.Group, error) {
+	dbGroup, err := r.queries.GetGroupByName(ctx, groupName)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.Group{}, errors.Join(err, validation.NoDataFoundErr)
+		}
+		return models.Group{}, errors.Join(err, parsing.InputDataErr)
+	}
+
+	dbRoles, err := r.queries.GetGroupRoles(ctx, dbGroup.Uuid)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return models.Group{}, errors.Join(err, unexpected.RequestErr)
+		}
+
+		dbRoles = []db.AuthRole{}
+	}
+
+	roles := make([]models.SimpleRole, len(dbRoles))
+	for i, role := range dbRoles {
+		roles[i] = models.SimpleRole{
+			UUID: role.Uuid.String(),
+			Name: role.Name,
+		}
+	}
+
+	dbResources, err := r.queries.GetGroupResources(ctx, dbGroup.Uuid)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return models.Group{}, errors.Join(err, validation.NoDataFoundErr)
+		}
+		dbResources = []db.Resource{}
+	}
+
+	resources := make([]models.Resource, len(dbResources))
+	for i, resource := range dbResources {
+		resources[i] = models.Resource{
+			UUID:  resource.Uuid.String(),
+			Value: resource.Value.String,
+		}
+	}
+
+	return models.Group{
+		UUID:      dbGroup.Uuid.String(),
+		Name:      dbGroup.Name,
+		Roles:     roles,
+		Resources: resources,
+	}, nil
 }

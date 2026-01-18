@@ -3,7 +3,9 @@ package service
 import (
 	"errors"
 	"github.com/google/uuid"
+	"github.com/igntnk/scholarship_point_system/errors/authorization"
 	"github.com/igntnk/scholarship_point_system/errors/unexpected"
+	"github.com/igntnk/scholarship_point_system/errors/validation"
 	"golang.org/x/crypto/bcrypt"
 	"unicode"
 	"unicode/utf8"
@@ -25,16 +27,16 @@ func NewPasswordManager(bcryptCost int) PasswordManager {
 
 func (m *passwordManager) ValidatePassword(password string) error {
 	if password == "" {
-		return errors.New("Пароль обязателен для создания пользователя")
+		return errors.Join(validation.WrongInputErr, errors.New("Пароль обязателен для создания пользователя"))
 	}
 	if utf8.RuneCountInString(password) < 8 {
-		return errors.New("Пароль должен быть не менее 8 символов")
+		return errors.Join(validation.WrongInputErr, errors.New("Пароль должен быть не менее 8 символов"))
 	}
 	if hasNoUppercase(password) {
-		return errors.New("Пароль должен иметь заглавные буквы")
+		return errors.Join(validation.WrongInputErr, errors.New("Пароль должен иметь заглавные буквы"))
 	}
 	if hasNoDigits(password) {
-		return errors.New("Пароль должен иметь цифры")
+		return errors.Join(validation.WrongInputErr, errors.New("Пароль должен иметь цифры"))
 	}
 
 	return nil
@@ -45,7 +47,7 @@ func (m *passwordManager) HashPassword(password string) (hash string, salt strin
 	if err != nil {
 		return hash, salt, errors.Join(err, unexpected.InternalErr)
 	}
-	salt = generatedUUID.String()[:m.bcryptCost]
+	salt = generatedUUID.String()[:10]
 	hashBytes, err := bcrypt.GenerateFromPassword([]byte(password+salt), m.bcryptCost)
 	if err != nil {
 		return hash, salt, errors.Join(err, unexpected.InternalErr)
@@ -56,7 +58,13 @@ func (m *passwordManager) HashPassword(password string) (hash string, salt strin
 }
 
 func (m *passwordManager) CompareHashAndPassword(hash, salt, password string) error {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password+salt))
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password+salt)); err != nil {
+		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			return errors.Join(err, authorization.WrongPasswordErr)
+		}
+		return errors.Join(err, unexpected.InternalErr)
+	}
+	return nil
 }
 
 func hasNoUppercase(s string) bool {

@@ -9,7 +9,7 @@ import (
 )
 
 type AuthRepository interface {
-	ChangePassword(ctx context.Context, uuid, password string) error
+	ChangePassword(ctx context.Context, uuid, salt, password string) error
 }
 
 type authRepository struct {
@@ -22,7 +22,7 @@ func NewAuthRepository(pool db.DBTX) AuthRepository {
 	}
 }
 
-func (r *authRepository) ChangePassword(ctx context.Context, uuid, password string) error {
+func (r *authRepository) ChangePassword(ctx context.Context, uuid, salt, password string) error {
 
 	pgPassword, err := ParseToPgText(password)
 	if err != nil {
@@ -34,13 +34,23 @@ func (r *authRepository) ChangePassword(ctx context.Context, uuid, password stri
 		return errors.Join(err, parsing.InputDataErr)
 	}
 
+	pgSalt, err := ParseToPgText(salt)
+	if err != nil {
+		return errors.Join(err, parsing.InputDataErr)
+	}
+
 	args := db.ChangePasswordParams{
 		Password: pgPassword,
 		Uuid:     pgUuid,
+		Salt:     pgSalt,
 	}
 	if err = r.queries.ChangePassword(ctx, args); err != nil {
 		return errors.Join(err, unexpected.RequestErr)
 	}
 
 	return nil
+}
+
+func (r *authRepository) SignIn(ctx context.Context, email, password string) (string, string, error) {
+	return "", "", nil
 }

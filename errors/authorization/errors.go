@@ -7,4 +7,7 @@ var (
 	TokenExpiredErr    = errors.New("Срок жизни токена закончился")
 	TokenDeniedErr     = errors.New("Токен отклонен")
 	HasNoPermissionErr = errors.New("Нет прав на данный ресурс")
+	HasNoEmailErr      = errors.New("Не предоставлен email")
+	HasNoPasswordErr   = errors.New("Не предоставлен пароль")
+	WrongPasswordErr   = errors.New("Неправильный пароль или email")
 )

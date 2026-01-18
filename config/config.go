@@ -20,7 +20,14 @@ type Config struct {
 		RESTPort int `mapstructure:"rest_port"`
 	} `yaml:"server" mapstructure:"server"`
 	Secure struct {
-		PasswordBcryptCost int `mapstructure:"password_bcrypt_cost"`
+		PasswordBcryptCost   int    `mapstructure:"password_bcrypt_cost"`
+		AccessTokenDuration  int    `mapstructure:"token_duration"`
+		RefreshTokenDuration int    `mapstructure:"refresh_token_duration"`
+		AdminGroupName       string `mapstructure:"admin_group_name"`
+		AdminRoleName        string `mapstructure:"admin_role_name"`
+		JWTPrivateKeyPath    string `mapstructure:"jwt_private_key_path"`
+		AdminPassword        string `mapstructure:"admin_password"`
+		AdminEmail           string `mapstructure:"admin_email"`
 	} `yaml:"secure" mapstructure:"secure"`
 }
 
@@ -55,8 +62,28 @@ func Get(logger zerolog.Logger) *Config {
 		logger.Fatal().Err(err).Msg("Failed to unmarshal config")
 	}
 
+	if cfg.Secure.AdminGroupName == "" {
+		cfg.Secure.AdminGroupName = "Админитраторы"
+	}
+
+	if cfg.Secure.AdminRoleName == "" {
+		cfg.Secure.AdminRoleName = "Админитраторы"
+	}
+
 	if cfg.Server.RESTPort == 0 {
 		cfg.Server.RESTPort = 10000
+	}
+
+	if cfg.Secure.AccessTokenDuration == 0 {
+		cfg.Secure.AccessTokenDuration = 86400
+	}
+
+	if cfg.Secure.RefreshTokenDuration == 0 {
+		cfg.Secure.RefreshTokenDuration = 172800
+	}
+
+	if cfg.Secure.JWTPrivateKeyPath == "" {
+		cfg.Secure.JWTPrivateKeyPath = "./cert/jwtRS256.key"
 	}
 
 	return cfg

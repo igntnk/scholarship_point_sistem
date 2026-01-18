@@ -5,6 +5,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/igntnk/scholarship_point_system/controllers/requests"
 	"github.com/igntnk/scholarship_point_system/errors/parsing"
+	"github.com/igntnk/scholarship_point_system/middleware"
 	"github.com/igntnk/scholarship_point_system/service"
 	"net/http"
 	"strconv"
@@ -12,18 +13,21 @@ import (
 
 type userController struct {
 	userService service.UserService
+	m           middleware.Middleware
 }
 
 func NewUserController(
 	userService service.UserService,
+	m middleware.Middleware,
 ) Controller {
 	return &userController{
 		userService: userService,
+		m:           m,
 	}
 }
 
 func (c userController) Register(r *gin.Engine) {
-	group := r.Group("/user")
+	group := r.Group("/user", c.m.CheckAccess)
 	group.GET("/simple", c.GetSimpleUserList)
 	group.GET("/simple/:uuid", c.GetSimpleUserByUUID)
 	group.POST("")

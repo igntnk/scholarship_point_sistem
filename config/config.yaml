@@ -4,5 +4,12 @@ database:
   uri: ""
 secure:
   password_bcrypt_cost: 0
+  jwt_private_key_path: ""
+  admin_group_name: ""
+  admin_role_name: ""
+  refresh_token_duration: 0
+  token_duration: 0
+  admin_email: ""
+  admin_password: ""
 
 

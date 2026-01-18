@@ -7,12 +7,16 @@ import (
 	"github.com/igntnk/scholarship_point_system/controllers"
 	"github.com/rs/zerolog"
 	"net/http"
+	"regexp"
+	"strings"
+	"unicode/utf8"
 )
 
 type httpServer struct {
-	Logger zerolog.Logger
-	Router *gin.Engine
-	srv    http.Server
+	Logger                zerolog.Logger
+	Router                *gin.Engine
+	srv                   http.Server
+	checkPermissionRoutes map[string]struct{}
 }
 
 func New(logger zerolog.Logger, port int,
@@ -25,9 +29,16 @@ func New(logger zerolog.Logger, port int,
 		ctrl[i].Register(r)
 	}
 
+	checkPermissionRoutes := map[string]struct{}{}
+
+	for _, route := range r.Routes() {
+		checkPermissionRoutes[unifyRelativePath(route.Path, route.Method)] = struct{}{}
+	}
+
 	return &httpServer{
-		Router: r,
-		Logger: logger.With().Str("Server", "HTTP").Logger(),
+		Router:                r,
+		checkPermissionRoutes: checkPermissionRoutes,
+		Logger:                logger.With().Str("Server", "HTTP").Logger(),
 		srv: http.Server{
 			Addr:    fmt.Sprintf(":%d", port),
 			Handler: r,
@@ -39,6 +50,7 @@ type HttpServer interface {
 	ListenAndServe() error
 	Routes() gin.RoutesInfo
 	Shutdown(ctx context.Context) error
+	GetRoutes() map[string]struct{}
 }
 
 func (h *httpServer) ListenAndServe() error {
@@ -51,4 +63,29 @@ func (h *httpServer) Shutdown(ctx context.Context) error {
 
 func (h *httpServer) Routes() gin.RoutesInfo {
 	return h.Router.Routes()
+}
+
+func unifyRelativePath(path, method string) string {
+	pathBuilder := strings.Builder{}
+	pathBuilder.WriteString(method)
+	pathBuilder.WriteString(" - ")
+
+	if !strings.HasPrefix(path, "/") {
+		pathBuilder.WriteString("/")
+	}
+
+	if strings.HasSuffix(path, "/") {
+		pathBuilder.WriteString(path[:utf8.RuneCountInString(path)-1])
+	} else {
+		pathBuilder.WriteString(path)
+	}
+
+	resultPath := pathBuilder.String()
+
+	re := regexp.MustCompile(`:[^/]+`)
+	return re.ReplaceAllString(resultPath, ":var")
+}
+
+func (h *httpServer) GetRoutes() map[string]struct{} {
+	return h.checkPermissionRoutes
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/igntnk/scholarship_point_system/controllers/requests"
 	"github.com/igntnk/scholarship_point_system/controllers/responses"
 	"github.com/igntnk/scholarship_point_system/errors/parsing"
+	"github.com/igntnk/scholarship_point_system/middleware"
 	"github.com/igntnk/scholarship_point_system/service"
 	"github.com/igntnk/scholarship_point_system/service/models"
 	"net/http"
@@ -14,18 +15,21 @@ import (
 
 type categoryController struct {
 	categoryService service.CategoryService
+	m               middleware.Middleware
 }
 
 func NewCategoryController(
 	categoryService service.CategoryService,
+	m middleware.Middleware,
 ) Controller {
 	return &categoryController{
 		categoryService: categoryService,
+		m:               m,
 	}
 }
 
 func (c categoryController) Register(r *gin.Engine) {
-	group := r.Group("/category")
+	group := r.Group("/category", c.m.CheckAccess)
 	group.POST("", c.Create)
 	group.GET("", c.GetCategories)
 	group.GET("/:uuid", c.GetByUUID)

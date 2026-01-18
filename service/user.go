@@ -56,8 +56,12 @@ func (s *userService) CreateUser(ctx context.Context, user requests.CreateUser) 
 		return "", errors.Join(validation.WrongInputErr, errors.New("Отсуствует номер зачетной книжки"))
 	}
 
+	if user.Email == "" {
+		return "", errors.Join(validation.WrongInputErr, errors.New("Отсутсвует почта"))
+	}
+
 	if err = s.passwordManager.ValidatePassword(user.Password); err != nil {
-		return "", errors.Join(validation.WrongInputErr, err)
+		return "", err
 	}
 
 	hashedPassword, salt, err := s.passwordManager.HashPassword(user.Password)

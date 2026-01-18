@@ -2,6 +2,8 @@ package main
 
 import (
 	trmpgx "github.com/avito-tech/go-transaction-manager/pgxv5"
+	"github.com/igntnk/scholarship_point_system/jwk"
+	"github.com/igntnk/scholarship_point_system/middleware"
 
 	"github.com/igntnk/scholarship_point_system/config"
 	"github.com/igntnk/scholarship_point_system/controllers"
@@ -55,30 +57,81 @@ func main() {
 
 	conn := trmpgx.DefaultCtxGetter.DefaultTrOrDB(mainCtx, pool)
 
+	// JWK
+	privateKey, err := os.ReadFile(cfg.Secure.JWTPrivateKeyPath)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("failed to read jwt private key")
+		return
+	}
+	jwkey := jwk.CreateJWK(privateKey)
+
 	// Permission Login
 	permissionRepo := repository.NewPermissionRepository(conn)
 	permissionService := service.NewPermissionService(permissionRepo)
-	permissionController := controllers.NewPermissionController(permissionService)
+	m := middleware.NewMiddleware(permissionService, jwkey)
+	permissionController := controllers.NewPermissionController(permissionService, m)
 
 	// Category Logic
 	categoryRepo := repository.NewCategoryRepository(conn)
 	orderService := service.NewCategoryService(categoryRepo)
-	orderController := controllers.NewCategoryController(orderService)
+	orderController := controllers.NewCategoryController(orderService, m)
+
+	// Password Manager
+	passwordManager := service.NewPasswordManager(cfg.Secure.PasswordBcryptCost)
+
+	// User Logic
+	userRepo := repository.NewUserRepository(conn)
+	userService := service.NewUserService(userRepo, passwordManager)
+	userController := controllers.NewUserController(userService, m)
+
+	// AuthLogic
+	authRepo := repository.NewAuthRepository(conn)
+	authService := service.NewAuthService(
+		authRepo,
+		userRepo,
+		passwordManager,
+		permissionRepo,
+		jwkey,
+		cfg.Secure.AccessTokenDuration,
+		cfg.Secure.RefreshTokenDuration,
+		cfg.Secure.AdminGroupName,
+	)
+	authController := controllers.NewAuthController(authService, m)
 
 	httpServer, err := web.New(
 		logger,
 		cfg.Server.RESTPort,
 		orderController,
 		permissionController,
+		userController,
+		authController,
 	)
 	if err != nil {
 		logger.Fatal().Err(err).Send()
 		return
 	}
 
-	err = permissionService.ReloadActiveResources(mainCtx, httpServer.Routes())
+	// Actualize Auth Info
+	adminUUID, err := authService.ActualizeAdmin(mainCtx, cfg.Secure.AdminEmail, cfg.Secure.AdminPassword)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("failed to reload admin data")
+		return
+	}
+
+	err = permissionService.ActualizeResources(mainCtx, httpServer.GetRoutes())
 	if err != nil {
 		logger.Fatal().Err(err).Msg("failed to reload active resources")
+		return
+	}
+
+	err = permissionService.ActualizeAdminGroupAndRole(
+		mainCtx,
+		adminUUID,
+		cfg.Secure.AdminGroupName,
+		cfg.Secure.AdminRoleName,
+	)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("failed to reload active admin group")
 		return
 	}
 

@@ -20,6 +20,7 @@ type UserRepository interface {
 	GetSimpleUserListWithPagination(ctx context.Context, args db.GetSimpleUserListWithPaginationParams) ([]db.GetSimpleUserListWithPaginationRow, error)
 	UpdateUserWithoutGradeBook(ctx context.Context, args db.UpdateUserInfoWithoutGradeBookParams) error
 	UpdateUserWithGradeBook(ctx context.Context, args db.UpdateUserInfoWithGradeBookParams) error
+	GetUserWithCredentialsByEmail(ctx context.Context, email string) (models.UserWithCredentials, error)
 }
 
 type userRepository struct {
@@ -125,4 +126,32 @@ func (r *userRepository) UpdateUserWithoutGradeBook(ctx context.Context, args db
 
 func (r *userRepository) UpdateUserWithGradeBook(ctx context.Context, args db.UpdateUserInfoWithGradeBookParams) error {
 	return r.queries.UpdateUserInfoWithGradeBook(ctx, args)
+}
+
+func (r *userRepository) GetUserWithCredentialsByEmail(ctx context.Context, email string) (models.UserWithCredentials, error) {
+	pgEmail, err := ParseToPgText(email)
+	if err != nil {
+		return models.UserWithCredentials{}, errors.Join(err, validation.WrongInputErr)
+	}
+
+	dbUser, err := r.queries.GetUserByEmail(ctx, pgEmail)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.UserWithCredentials{}, errors.Join(err, validation.NoDataFoundErr)
+		}
+		return models.UserWithCredentials{}, errors.Join(err, unexpected.RequestErr)
+	}
+
+	return models.UserWithCredentials{
+		UUID:            dbUser.Uuid.String(),
+		Name:            dbUser.Name,
+		SecondName:      dbUser.SecondName,
+		Patronymic:      dbUser.Patronymic.String,
+		GradeBookNumber: dbUser.GradebookNumber,
+		BirthDate:       dbUser.BirthDate.Time.Format(time.RFC3339),
+		Email:           dbUser.Email.String,
+		PhoneNumber:     dbUser.PhoneNumber.String,
+		HashedPassword:  dbUser.Password.String,
+		Salt:            dbUser.Salt.String,
+	}, nil
 }

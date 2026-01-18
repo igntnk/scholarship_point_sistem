@@ -4,7 +4,7 @@ type CreateUser struct {
 	Name            string `json:"name"`
 	SecondName      string `json:"second_name"`
 	Patronymic      string `json:"patronymic"`
-	GradebookNumber string `json:"gradebooknumber"`
+	GradebookNumber string `json:"gradebook_number"`
 	BirthDate       string `json:"birth_date"`
 	Email           string `json:"email"`
 	PhoneNumber     string `json:"phone_number"`
@@ -16,7 +16,7 @@ type UpdateUser struct {
 	Name            string `json:"name"`
 	SecondName      string `json:"second_name"`
 	Patronymic      string `json:"patronymic"`
-	GradebookNumber string `json:"gradebooknumber"`
+	GradebookNumber string `json:"gradebook_number"`
 	BirthDate       string `json:"birth_date"`
 	Email           string `json:"email"`
 	PhoneNumber     string `json:"phone_number"`

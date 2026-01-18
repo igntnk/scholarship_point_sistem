@@ -118,3 +118,21 @@ limit $1 offset $2;
 select *, count(*) over() total_records
 from auth_group
 limit $1 offset $2;
+
+-- name: GetUserGroups :many
+select * from auth_group ag
+    join role_group rg on ag.uuid = rg.group_uuid
+    join user_role ur on ur.role_uuid = rg.role_uuid
+where ur.user_uuid = $1;
+
+-- name: RenameGroup :exec
+update auth_group set name = $1 where uuid = $2;
+
+-- name: GetGroupByName :one
+select * from auth_group where name = $1;
+
+-- name: RenameRole :exec
+update auth_role set name = $1 where uuid = $2;
+
+-- name: GetRoleByName :one
+select * from auth_role where name = $1;

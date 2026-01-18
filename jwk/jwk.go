@@ -17,9 +17,9 @@ const (
 )
 
 type SPSAccessClaims struct {
-	User   User           `json:"user"`
-	Data   map[string]any `json:"data"`
-	IsRoot bool
+	User    User           `json:"user"`
+	Data    map[string]any `json:"data"`
+	IsAdmin bool           `json:"is_admin"`
 	jwt.RegisteredClaims
 }
 
@@ -107,6 +107,11 @@ func (s *rsaJRS) PublicKey() ([]byte, error) {
 }
 
 func WithClaims(ctx context.Context, claims SPSAccessClaims) context.Context {
+	if c, ok := ctx.(interface{ Set(any, any) }); ok {
+		c.Set(ClaimsContextKey, claims)
+		return ctx
+	}
+
 	if c, ok := ctx.(interface{ Set(string, any) }); ok {
 		c.Set(ClaimsContextKey, claims)
 		return ctx
@@ -121,4 +126,18 @@ func ClaimsFromContext(ctx context.Context) *SPSAccessClaims {
 		return nil
 	}
 	return &claims
+}
+
+func CreateJWK(privateKey []byte) JWKSigner {
+	pk, err := jwt.ParseRSAPrivateKeyFromPEM(privateKey)
+	if err != nil {
+		return nil
+	}
+
+	jwk := &rsaJRS{
+		publicKey:  pk.Public().(*rsa.PublicKey),
+		privateKey: pk,
+	}
+
+	return jwk
 }

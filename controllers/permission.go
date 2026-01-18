@@ -5,6 +5,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/igntnk/scholarship_point_system/controllers/requests"
 	"github.com/igntnk/scholarship_point_system/errors/parsing"
+	"github.com/igntnk/scholarship_point_system/middleware"
 	"github.com/igntnk/scholarship_point_system/service"
 	"net/http"
 	"strconv"
@@ -12,10 +13,11 @@ import (
 
 type permissionController struct {
 	permissionService service.PermissionService
+	m                 middleware.Middleware
 }
 
 func (c *permissionController) Register(r *gin.Engine) {
-	g := r.Group("/permission")
+	g := r.Group("/permission", c.m.CheckAccess)
 	roleG := g.Group("/role")
 	groupG := g.Group("/group")
 
@@ -32,9 +34,13 @@ func (c *permissionController) Register(r *gin.Engine) {
 	groupG.POST("", c.CreateGroup)
 }
 
-func NewPermissionController(permissionService service.PermissionService) Controller {
+func NewPermissionController(
+	permissionService service.PermissionService,
+	m middleware.Middleware,
+) Controller {
 	return &permissionController{
 		permissionService: permissionService,
+		m:                 m,
 	}
 }
 
