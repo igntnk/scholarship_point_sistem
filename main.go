@@ -84,7 +84,7 @@ func main() {
 	userService := service.NewUserService(userRepo, passwordManager)
 	userController := controllers.NewUserController(userService, m)
 
-	// AuthLogic
+	// Auth Logic
 	authRepo := repository.NewAuthRepository(conn)
 	authService := service.NewAuthService(
 		authRepo,
@@ -98,6 +98,11 @@ func main() {
 	)
 	authController := controllers.NewAuthController(authService, m)
 
+	// Achievement Logic
+	achievementRepo := repository.NewAchievementRepository(conn)
+	achievementService := service.NewAchievementService(achievementRepo, userRepo)
+	achievementController := controllers.NewAchievementController(achievementService, m)
+
 	httpServer, err := web.New(
 		logger,
 		cfg.Server.RESTPort,
@@ -105,6 +110,7 @@ func main() {
 		permissionController,
 		userController,
 		authController,
+		achievementController,
 	)
 	if err != nil {
 		logger.Fatal().Err(err).Send()

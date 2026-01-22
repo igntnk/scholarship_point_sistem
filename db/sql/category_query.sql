@@ -42,3 +42,10 @@ set name         = $1,
     comment = $3,
     status_uuid  = (select s.uuid from status s where s.display_value = $4 and s.type = 'category_status')
 where category.uuid = $5;
+
+-- name: GetCategoryByAchievement :many
+select c.*, s.display_value as status_value
+from category c
+         join achievement_category ac on c.uuid = ac.category_uuid
+         join status s on s.uuid = c.status_uuid
+where achievement_uuid = $1;

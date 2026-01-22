@@ -8,17 +8,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type AcheivementCategory struct {
-	CategoryUuid    pgtype.UUID
-	AchievementUuid pgtype.UUID
-}
-
 type Achievement struct {
 	Uuid           pgtype.UUID
 	Comment        pgtype.Text
 	AttachmentLink string
 	UserUuid       pgtype.UUID
 	StatusUuid     pgtype.UUID
+}
+
+type AchievementCategory struct {
+	CategoryUuid    pgtype.UUID
+	AchievementUuid pgtype.UUID
 }
 
 type AuthGroup struct {
@@ -74,6 +74,11 @@ type SysUser struct {
 	StatusUuid      pgtype.UUID
 	Password        pgtype.Text
 	Salt            pgtype.Text
+}
+
+type UserAchievement struct {
+	UserUuid        pgtype.UUID
+	AchievementUuid pgtype.UUID
 }
 
 type UserRole struct {

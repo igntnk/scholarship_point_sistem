@@ -47,6 +47,52 @@ func (q *Queries) DeleteCategory(ctx context.Context, uuid pgtype.UUID) error {
 	return err
 }
 
+const getCategoryByAchievement = `-- name: GetCategoryByAchievement :many
+select c.uuid, c.name, c.point_amount, c.parent_category, c.comment, c.status_uuid, s.display_value as status_value
+from category c
+         join achievement_category ac on c.uuid = ac.category_uuid
+         join status s on s.uuid = c.status_uuid
+where achievement_uuid = $1
+`
+
+type GetCategoryByAchievementRow struct {
+	Uuid           pgtype.UUID
+	Name           string
+	PointAmount    pgtype.Numeric
+	ParentCategory pgtype.UUID
+	Comment        pgtype.Text
+	StatusUuid     pgtype.UUID
+	StatusValue    pgtype.Text
+}
+
+func (q *Queries) GetCategoryByAchievement(ctx context.Context, achievementUuid pgtype.UUID) ([]GetCategoryByAchievementRow, error) {
+	rows, err := q.db.Query(ctx, getCategoryByAchievement, achievementUuid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetCategoryByAchievementRow
+	for rows.Next() {
+		var i GetCategoryByAchievementRow
+		if err := rows.Scan(
+			&i.Uuid,
+			&i.Name,
+			&i.PointAmount,
+			&i.ParentCategory,
+			&i.Comment,
+			&i.StatusUuid,
+			&i.StatusValue,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getCategoryByNameAndParentNull = `-- name: GetCategoryByNameAndParentNull :one
 select uuid, name, point_amount, parent_category, comment, status_uuid
 from category

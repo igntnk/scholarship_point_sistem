@@ -209,3 +209,105 @@ func (b *BatchInsertResourcesBatchResults) Close() error {
 	b.closed = true
 	return b.br.Close()
 }
+
+const createBatchAchievementCategory = `-- name: CreateBatchAchievementCategory :batchexec
+insert into achievement_category (category_uuid, achievement_uuid)
+values ($1, $2)
+`
+
+type CreateBatchAchievementCategoryBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type CreateBatchAchievementCategoryParams struct {
+	CategoryUuid    pgtype.UUID
+	AchievementUuid pgtype.UUID
+}
+
+func (q *Queries) CreateBatchAchievementCategory(ctx context.Context, arg []CreateBatchAchievementCategoryParams) *CreateBatchAchievementCategoryBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.CategoryUuid,
+			a.AchievementUuid,
+		}
+		batch.Queue(createBatchAchievementCategory, vals...)
+	}
+	br := q.db.SendBatch(ctx, batch)
+	return &CreateBatchAchievementCategoryBatchResults{br, len(arg), false}
+}
+
+func (b *CreateBatchAchievementCategoryBatchResults) Exec(f func(int, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		if b.closed {
+			if f != nil {
+				f(t, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		_, err := b.br.Exec()
+		if f != nil {
+			f(t, err)
+		}
+	}
+}
+
+func (b *CreateBatchAchievementCategoryBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const removeBatchAchievementCategory = `-- name: RemoveBatchAchievementCategory :batchexec
+delete
+from achievement_category
+where category_uuid = $1
+  and achievement_uuid = $2
+`
+
+type RemoveBatchAchievementCategoryBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type RemoveBatchAchievementCategoryParams struct {
+	CategoryUuid    pgtype.UUID
+	AchievementUuid pgtype.UUID
+}
+
+func (q *Queries) RemoveBatchAchievementCategory(ctx context.Context, arg []RemoveBatchAchievementCategoryParams) *RemoveBatchAchievementCategoryBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.CategoryUuid,
+			a.AchievementUuid,
+		}
+		batch.Queue(removeBatchAchievementCategory, vals...)
+	}
+	br := q.db.SendBatch(ctx, batch)
+	return &RemoveBatchAchievementCategoryBatchResults{br, len(arg), false}
+}
+
+func (b *RemoveBatchAchievementCategoryBatchResults) Exec(f func(int, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		if b.closed {
+			if f != nil {
+				f(t, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		_, err := b.br.Exec()
+		if f != nil {
+			f(t, err)
+		}
+	}
+}
+
+func (b *RemoveBatchAchievementCategoryBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
