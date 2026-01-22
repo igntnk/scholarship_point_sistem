@@ -37,9 +37,8 @@ func (q *Queries) CreateCategory(ctx context.Context, arg CreateCategoryParams) 
 }
 
 const deleteCategory = `-- name: DeleteCategory :exec
-delete
-from category
-where uuid = $1
+update category c set status_uuid = (select s.uuid from status s where s.internal_value = 'unactive' and s.type = 'category_status')
+where c.uuid = $1
 `
 
 func (q *Queries) DeleteCategory(ctx context.Context, uuid pgtype.UUID) error {
@@ -168,13 +167,46 @@ func (q *Queries) GetCategoryByUUID(ctx context.Context, uuid pgtype.UUID) (GetC
 	return i, err
 }
 
-const listCategories = `-- name: ListCategories :many
+const getChildCategories = `-- name: GetChildCategories :many
+select uuid, name, point_amount, parent_category, comment, status_uuid from category
+where parent_category = $1
+`
+
+func (q *Queries) GetChildCategories(ctx context.Context, parentCategory pgtype.UUID) ([]Category, error) {
+	rows, err := q.db.Query(ctx, getChildCategories, parentCategory)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Category
+	for rows.Next() {
+		var i Category
+		if err := rows.Scan(
+			&i.Uuid,
+			&i.Name,
+			&i.PointAmount,
+			&i.ParentCategory,
+			&i.Comment,
+			&i.StatusUuid,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listParentCategories = `-- name: ListParentCategories :many
 select c.uuid, c.name, c.point_amount, c.parent_category, c.comment, s.display_value
 from category c
          join status s on c.status_uuid = s.uuid and type = 'category_status'
+where parent_category is null
 `
 
-type ListCategoriesRow struct {
+type ListParentCategoriesRow struct {
 	Uuid           pgtype.UUID
 	Name           string
 	PointAmount    pgtype.Numeric
@@ -183,15 +215,15 @@ type ListCategoriesRow struct {
 	DisplayValue   pgtype.Text
 }
 
-func (q *Queries) ListCategories(ctx context.Context) ([]ListCategoriesRow, error) {
-	rows, err := q.db.Query(ctx, listCategories)
+func (q *Queries) ListParentCategories(ctx context.Context) ([]ListParentCategoriesRow, error) {
+	rows, err := q.db.Query(ctx, listParentCategories)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListCategoriesRow
+	var items []ListParentCategoriesRow
 	for rows.Next() {
-		var i ListCategoriesRow
+		var i ListParentCategoriesRow
 		if err := rows.Scan(
 			&i.Uuid,
 			&i.Name,
@@ -210,19 +242,20 @@ func (q *Queries) ListCategories(ctx context.Context) ([]ListCategoriesRow, erro
 	return items, nil
 }
 
-const listCategoriesWithPagination = `-- name: ListCategoriesWithPagination :many
+const listParentCategoriesWithPagination = `-- name: ListParentCategoriesWithPagination :many
 select c.uuid, c.name, c.point_amount, c.parent_category, c.comment, s.display_value, count(c.uuid) over() as total_amount
 from category c
          join status s on c.status_uuid = s.uuid and type = 'category_status'
+where parent_category is null
 limit $1 offset $2
 `
 
-type ListCategoriesWithPaginationParams struct {
+type ListParentCategoriesWithPaginationParams struct {
 	Limit  int32
 	Offset int32
 }
 
-type ListCategoriesWithPaginationRow struct {
+type ListParentCategoriesWithPaginationRow struct {
 	Uuid           pgtype.UUID
 	Name           string
 	PointAmount    pgtype.Numeric
@@ -232,15 +265,15 @@ type ListCategoriesWithPaginationRow struct {
 	TotalAmount    int64
 }
 
-func (q *Queries) ListCategoriesWithPagination(ctx context.Context, arg ListCategoriesWithPaginationParams) ([]ListCategoriesWithPaginationRow, error) {
-	rows, err := q.db.Query(ctx, listCategoriesWithPagination, arg.Limit, arg.Offset)
+func (q *Queries) ListParentCategoriesWithPagination(ctx context.Context, arg ListParentCategoriesWithPaginationParams) ([]ListParentCategoriesWithPaginationRow, error) {
+	rows, err := q.db.Query(ctx, listParentCategoriesWithPagination, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListCategoriesWithPaginationRow
+	var items []ListParentCategoriesWithPaginationRow
 	for rows.Next() {
-		var i ListCategoriesWithPaginationRow
+		var i ListParentCategoriesWithPaginationRow
 		if err := rows.Scan(
 			&i.Uuid,
 			&i.Name,

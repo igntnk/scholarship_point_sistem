@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/igntnk/scholarship_point_system/controllers/requests"
+	"github.com/igntnk/scholarship_point_system/controllers/responses"
 	"github.com/igntnk/scholarship_point_system/db"
 	"github.com/igntnk/scholarship_point_system/errors/parsing"
 	"github.com/igntnk/scholarship_point_system/errors/unexpected"
@@ -24,8 +25,9 @@ type CategoryService interface {
 		err error,
 	)
 	GetCategoryByUuid(ctx context.Context, uuid string) (models.Category, error)
-	GetCategoriesWithPagination(ctx context.Context, limit, offset int) ([]models.Category, int, error)
-	GetCategories(ctx context.Context) ([]models.Category, error)
+	GetParentCategoriesWithPagination(ctx context.Context, limit, offset int) ([]models.Category, int, error)
+	GetParentCategories(ctx context.Context) ([]models.Category, error)
+	GetChildCategories(ctx context.Context, uuid string) ([]responses.Category, error)
 	DeleteCategory(ctx context.Context, uuid string) error
 	UpdateCategory(ctx context.Context, category requests.UpdateCategory) error
 }
@@ -134,8 +136,8 @@ func (s categoryService) GetCategoryByUuid(
 	}, nil
 }
 
-func (s categoryService) GetCategoriesWithPagination(ctx context.Context, limit, offset int) ([]models.Category, int, error) {
-	dbCategories, err := s.categoryRepo.GetCategoriesWithPagination(ctx, db.ListCategoriesWithPaginationParams{
+func (s categoryService) GetParentCategoriesWithPagination(ctx context.Context, limit, offset int) ([]models.Category, int, error) {
+	dbCategories, err := s.categoryRepo.GetParentCategoriesWithPagination(ctx, db.ListParentCategoriesWithPaginationParams{
 		Limit:  int32(limit),
 		Offset: int32(offset),
 	})
@@ -167,8 +169,8 @@ func (s categoryService) GetCategoriesWithPagination(ctx context.Context, limit,
 	return categories, totalAmount, nil
 }
 
-func (s categoryService) GetCategories(ctx context.Context) ([]models.Category, error) {
-	dbCategories, err := s.categoryRepo.GetCategories(ctx)
+func (s categoryService) GetParentCategories(ctx context.Context) ([]models.Category, error) {
+	dbCategories, err := s.categoryRepo.GetParentCategories(ctx)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return []models.Category{}, nil
@@ -193,6 +195,24 @@ func (s categoryService) GetCategories(ctx context.Context) ([]models.Category, 
 	}
 
 	return categories, nil
+}
+
+func (s categoryService) GetChildCategories(ctx context.Context, uuid string) ([]responses.Category, error) {
+	modelCategories, err := s.categoryRepo.GetChildCategories(ctx, uuid)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := make([]responses.Category, len(modelCategories))
+	for i, modelCategory := range modelCategories {
+		resp[i] = responses.Category{
+			UUID:   modelCategory.UUID,
+			Name:   modelCategory.Name,
+			Points: modelCategory.PointAmount,
+		}
+	}
+
+	return resp, nil
 }
 
 func (s categoryService) DeleteCategory(ctx context.Context, uuid string) error {

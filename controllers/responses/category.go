@@ -5,7 +5,7 @@ type CreateCategory struct {
 }
 
 type Category struct {
-	UUID   string `json:"uuid"`
-	Name   string `json:"name"`
-	Points int    `json:"points,omitempty"`
+	UUID   string  `json:"uuid"`
+	Name   string  `json:"name"`
+	Points float32 `json:"points,omitempty"`
 }

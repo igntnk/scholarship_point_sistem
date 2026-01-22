@@ -9,16 +9,18 @@ from category c
          join status s on c.status_uuid = s.uuid and type = 'category_status'
 where c.uuid = $1;
 
--- name: ListCategoriesWithPagination :many
+-- name: ListParentCategoriesWithPagination :many
 select c.uuid, c.name, c.point_amount, c.parent_category, c.comment, s.display_value, count(c.uuid) over() as total_amount
 from category c
          join status s on c.status_uuid = s.uuid and type = 'category_status'
+where parent_category is null
 limit $1 offset $2;
 
--- name: ListCategories :many
+-- name: ListParentCategories :many
 select c.uuid, c.name, c.point_amount, c.parent_category, c.comment, s.display_value
 from category c
-         join status s on c.status_uuid = s.uuid and type = 'category_status';
+         join status s on c.status_uuid = s.uuid and type = 'category_status'
+where parent_category is null;
 
 -- name: GetCategoryByNameAndParentNull :one
 select *
@@ -30,10 +32,13 @@ select *
 from category
 where name = $1 and parent_category = $2;
 
+-- name: GetChildCategories :many
+select * from category
+where parent_category = $1;
+
 -- name: DeleteCategory :exec
-delete
-from category
-where uuid = $1;
+update category c set status_uuid = (select s.uuid from status s where s.internal_value = 'unactive' and s.type = 'category_status')
+where c.uuid = $1;
 
 -- name: UpdateCategory :exec
 update category

@@ -6,6 +6,7 @@ import (
 	"github.com/igntnk/scholarship_point_system/controllers/requests"
 	"github.com/igntnk/scholarship_point_system/controllers/responses"
 	"github.com/igntnk/scholarship_point_system/errors/parsing"
+	"github.com/igntnk/scholarship_point_system/errors/validation"
 	"github.com/igntnk/scholarship_point_system/middleware"
 	"github.com/igntnk/scholarship_point_system/service"
 	"github.com/igntnk/scholarship_point_system/service/models"
@@ -31,7 +32,8 @@ func NewCategoryController(
 func (c categoryController) Register(r *gin.Engine) {
 	group := r.Group("/category", c.m.CheckAccess)
 	group.POST("", c.Create)
-	group.GET("", c.GetCategories)
+	group.GET("/parent", c.GetParentCategories)
+	group.GET("/childs/:uuid", c.GetChildCategories)
 	group.GET("/:uuid", c.GetByUUID)
 	group.PUT("/:uuid", c.Update)
 	group.DELETE("/:uuid", c.DeleteCategory)
@@ -85,7 +87,7 @@ func (c categoryController) GetByUUID(context *gin.Context) {
 	context.JSON(http.StatusOK, createResponse(category))
 }
 
-func (c categoryController) GetCategories(context *gin.Context) {
+func (c categoryController) GetParentCategories(context *gin.Context) {
 	var err error
 
 	defer func() {
@@ -98,7 +100,7 @@ func (c categoryController) GetCategories(context *gin.Context) {
 	strLimit := queries.Get("limit")
 	if strLimit == "" {
 		var categories []models.Category
-		categories, err = c.categoryService.GetCategories(context)
+		categories, err = c.categoryService.GetParentCategories(context)
 		if err != nil {
 			return
 		}
@@ -120,12 +122,35 @@ func (c categoryController) GetCategories(context *gin.Context) {
 		return
 	}
 
-	categories, totalRecords, err := c.categoryService.GetCategoriesWithPagination(context, limit, offset)
+	categories, totalRecords, err := c.categoryService.GetParentCategoriesWithPagination(context, limit, offset)
 	if err != nil {
 		return
 	}
 
 	context.JSON(http.StatusOK, createResponseWithPagination(categories, limit, offset, totalRecords))
+}
+
+func (c categoryController) GetChildCategories(context *gin.Context) {
+	var err error
+
+	defer func() {
+		if err != nil {
+			processHttpError(context, err)
+		}
+	}()
+
+	uuid := context.Params.ByName("uuid")
+	if uuid == "" {
+		err = errors.Join(validation.WrongInputErr, errors.New("Отсутствует uuid категории"))
+		return
+	}
+
+	resp, err := c.categoryService.GetChildCategories(context, uuid)
+	if err != nil {
+		return
+	}
+
+	context.JSON(http.StatusOK, createResponse(resp))
 }
 
 func (c categoryController) DeleteCategory(context *gin.Context) {
