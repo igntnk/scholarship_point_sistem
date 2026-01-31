@@ -1,15 +1,22 @@
 server:
-  rest_port: ""
+  rest_port: 9000
+
 database:
-  uri: ""
+  uri: "postgresql://pgas_user:Pass123@db.mars-shelter.com:7010/pgas"
+
 secure:
   password_bcrypt_cost: 0
-  jwt_private_key_path: ""
+  jwt_private_key_path: "./cert/jwt_private.pem"
   admin_group_name: ""
   admin_role_name: ""
-  refresh_token_duration: 0
-  token_duration: 0
-  admin_email: ""
-  admin_password: ""
+  refresh_token_duration: 2592000
+  token_duration: 900
+  admin_email: "admin@gmail.com"
+  admin_password: "1234"
 
-
+cors:
+  allow_all: true
+  allowed_origins:
+    - "http://localhost:3000"
+    - "http://127.0.0.1:3000"
+  allow_credentials: false

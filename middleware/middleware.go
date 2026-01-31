@@ -8,7 +8,9 @@ import (
 	"github.com/igntnk/scholarship_point_system/jwk"
 	"github.com/igntnk/scholarship_point_system/service"
 	"net/http"
+	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 type Middleware interface {
@@ -39,6 +41,7 @@ func (m *middleware) authorize(c *gin.Context) {
 	t := strings.Split(authHeader, " ")
 	if len(t) != 2 {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": authorization.UnauthorizedErr.Error()})
+		return
 	}
 
 	authToken := t[1]
@@ -84,8 +87,14 @@ func (m *middleware) checkAccess(c *gin.Context, recursive bool) {
 	}
 
 	if !claims.IsAdmin {
-		path := c.Request.URL.Path
-		hasAccess, err := m.PermissionService.CheckUserHasPermission(c, claims.User.UUID, path)
+		p := c.FullPath()
+		if p == "" {
+			p = c.Request.URL.Path
+		}
+
+		permValue := unifyRelativePath(p, c.Request.Method)
+
+		hasAccess, err := m.PermissionService.CheckUserHasPermission(c, claims.User.UUID, permValue)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": authorization.UnauthorizedErr.Error()})
 			return
@@ -98,4 +107,25 @@ func (m *middleware) checkAccess(c *gin.Context, recursive bool) {
 	}
 
 	c.Next()
+}
+
+func unifyRelativePath(path, method string) string {
+	pathBuilder := strings.Builder{}
+	pathBuilder.WriteString(method)
+	pathBuilder.WriteString(" - ")
+
+	if !strings.HasPrefix(path, "/") {
+		pathBuilder.WriteString("/")
+	}
+
+	if strings.HasSuffix(path, "/") {
+		pathBuilder.WriteString(path[:utf8.RuneCountInString(path)-1])
+	} else {
+		pathBuilder.WriteString(path)
+	}
+
+	resultPath := pathBuilder.String()
+
+	re := regexp.MustCompile(`:[^/]+`)
+	return re.ReplaceAllString(resultPath, ":var")
 }

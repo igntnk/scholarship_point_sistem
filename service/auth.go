@@ -59,37 +59,57 @@ func NewAuthService(
 }
 
 func (s *authService) ActualizeAdmin(ctx context.Context, email, password string) (string, error) {
-	var userUUID string
+	email = strings.TrimSpace(email)
+	password = strings.TrimSpace(password)
+
+	if len(email) == 0 {
+		return "", authorization.HasNoEmailErr
+	}
+
+	if len(password) == 0 {
+		return "", authorization.HasNoPasswordErr
+	}
+
 	user, err := s.userRepo.GetUserWithCredentialsByEmail(ctx, email)
 	if err != nil {
-		if !errors.Is(err, validation.NoDataFoundErr) {
+		if !errors.Is(err, validation.NoDataFoundErr) && !errors.Is(err, pgx.ErrNoRows) {
 			return "", err
 		}
 
-		userUUID, _, _, err = s.SignUp(ctx, requests.CreateUser{
+		if err = s.passwordManager.ValidatePassword(password); err != nil {
+			return "", err
+		}
+
+		hashedPassword, salt, err := s.passwordManager.HashPassword(password)
+		if err != nil {
+			return "", err
+		}
+
+		userUUID, err := s.userRepo.CreateUser(ctx, models.UserWithCredentials{
 			Name:            "Администратор",
 			SecondName:      "Главный",
-			GradebookNumber: "0-0",
+			GradeBookNumber: "0-0",
 			Email:           email,
-			Password:        password,
+			HashedPassword:  hashedPassword,
+			Salt:            salt,
 		})
 		if err != nil {
 			return "", err
 		}
-	} else {
-		userUUID = user.UUID
+
+		return userUUID, nil
 	}
 
-	err = s.passwordManager.CompareHashAndPassword(user.HashedPassword, user.Salt, password)
-	if err == nil {
-		return user.UUID, nil
+	userUUID := user.UUID
+	if err = s.passwordManager.CompareHashAndPassword(user.HashedPassword, user.Salt, password); err == nil {
+		return userUUID, nil
 	}
 
 	if err = s.ChangePassword(ctx, userUUID, password); err != nil {
 		return "", err
 	}
 
-	return user.UUID, nil
+	return userUUID, nil
 }
 
 func (s *authService) ChangePassword(ctx context.Context, uuid, password string) error {
@@ -144,7 +164,6 @@ func (s *authService) SignIn(ctx context.Context, email, password string) (strin
 		Patronymic: user.Patronymic,
 		Email:      user.Email,
 	}, groups)
-
 }
 
 func (s *authService) SignUp(ctx context.Context, user requests.CreateUser) (string, string, string, error) {
@@ -167,6 +186,14 @@ func (s *authService) SignUp(ctx context.Context, user requests.CreateUser) (str
 
 	if user.Email == "" {
 		return "", "", "", errors.Join(validation.WrongInputErr, errors.New("Отсутсвует почта"))
+	}
+
+	_, err = s.userRepo.GetUserWithCredentialsByEmail(ctx, user.Email)
+	if err == nil {
+		return "", "", "", errors.Join(validation.RecordAlreadyExistsErr, errors.New("email уже зарегистрирован"))
+	}
+	if !errors.Is(err, validation.NoDataFoundErr) && !errors.Is(err, pgx.ErrNoRows) {
+		return "", "", "", err
 	}
 
 	if err = s.passwordManager.ValidatePassword(user.Password); err != nil {
@@ -209,8 +236,9 @@ func (s *authService) SignUp(ctx context.Context, user requests.CreateUser) (str
 
 func (s *authService) RefreshToken(ctx context.Context, refreshToken string) (string, string, error) {
 	refreshToken = strings.TrimSpace(refreshToken)
+	refreshToken = strings.TrimPrefix(refreshToken, "Bearer ")
+	refreshToken = strings.TrimSpace(refreshToken)
 
-	refreshToken = strings.TrimLeft(refreshToken, "Bearer ")
 	if len(refreshToken) == 0 {
 		return "", "", errors.Join(authorization.TokenDeniedErr, errors.New("Токен обновления не найден"))
 	}
@@ -237,10 +265,11 @@ func (s *authService) createAccessAndRefreshToken(
 	user models.SimpleUser,
 	groups []models.SimpleGroup,
 ) (string, string, error) {
-	tokenID, err := uuid.NewUUID()
-	if err != nil {
-		return "", "", errors.Join(err, unexpected.InternalErr)
+	if s.jwkey == nil {
+		return "", "", errors.Join(unexpected.InternalErr, errors.New("jwt signer is not configured"))
 	}
+
+	tokenID := uuid.NewString()
 
 	isAdmin := false
 	for _, group := range groups {
@@ -266,7 +295,7 @@ func (s *authService) createAccessAndRefreshToken(
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Second * time.Duration(s.AccessTokenDuration))),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ID:        tokenID.String(),
+			ID:        tokenID,
 		},
 	}
 	accessToken, err := s.jwkey.SignToken(accessClaims)
@@ -281,7 +310,7 @@ func (s *authService) createAccessAndRefreshToken(
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Second * time.Duration(s.RefreshTokenDuration))),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ID:        tokenID.String(),
+			ID:        tokenID,
 		},
 		Data:     nil,
 		UserUUID: user.UUID,

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"github.com/igntnk/scholarship_point_system/config"
 	"github.com/igntnk/scholarship_point_system/controllers"
+	"github.com/igntnk/scholarship_point_system/middleware"
 	"github.com/rs/zerolog"
 	"net/http"
 	"regexp"
@@ -19,10 +21,11 @@ type httpServer struct {
 	checkPermissionRoutes map[string]struct{}
 }
 
-func New(logger zerolog.Logger, port int,
+func New(logger zerolog.Logger, port int, corsCfg config.CorsConfig,
 	ctrl ...controllers.Controller) (HttpServer, error) {
 
 	r := gin.New()
+	r.Use(middleware.NewCORS(corsCfg))
 	r.Use(gin.Recovery())
 
 	for i := 0; i < len(ctrl); i++ {

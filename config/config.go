@@ -12,6 +12,12 @@ const (
 	EnvPrefix = "SPS"
 )
 
+type CorsConfig struct {
+	AllowAll         bool     `mapstructure:"allow_all" yaml:"allow_all"`
+	AllowedOrigins   []string `mapstructure:"allowed_origins" yaml:"allowed_origins"`
+	AllowCredentials bool     `mapstructure:"allow_credentials" yaml:"allow_credentials"`
+}
+
 type Config struct {
 	Database struct {
 		URI string `yaml:"uri" mapstructure:"uri"`
@@ -29,6 +35,7 @@ type Config struct {
 		AdminPassword        string `mapstructure:"admin_password"`
 		AdminEmail           string `mapstructure:"admin_email"`
 	} `yaml:"secure" mapstructure:"secure"`
+	CORS CorsConfig `yaml:"cors" mapstructure:"cors"`
 }
 
 func Get(logger zerolog.Logger) *Config {
@@ -43,6 +50,18 @@ func Get(logger zerolog.Logger) *Config {
 	err := v.ReadInConfig()
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to read config")
+	}
+
+	if envOrigins := strings.TrimSpace(os.Getenv("SPS_CORS_ALLOWED_ORIGINS")); envOrigins != "" {
+		parts := strings.Split(envOrigins, ",")
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				out = append(out, p)
+			}
+		}
+		v.Set("cors.allowed_origins", out)
 	}
 
 	for _, key := range v.AllKeys() {
@@ -84,6 +103,10 @@ func Get(logger zerolog.Logger) *Config {
 
 	if cfg.Secure.JWTPrivateKeyPath == "" {
 		cfg.Secure.JWTPrivateKeyPath = "./cert/jwtRS256.key"
+	}
+
+	if !cfg.CORS.AllowAll && len(cfg.CORS.AllowedOrigins) == 0 {
+		cfg.CORS.AllowAll = true
 	}
 
 	return cfg

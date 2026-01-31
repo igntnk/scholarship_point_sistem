@@ -1,24 +1,22 @@
 package main
 
 import (
+	"context"
 	trmpgx "github.com/avito-tech/go-transaction-manager/pgxv5"
-	"github.com/igntnk/scholarship_point_system/jwk"
-	"github.com/igntnk/scholarship_point_system/middleware"
-
 	"github.com/igntnk/scholarship_point_system/config"
 	"github.com/igntnk/scholarship_point_system/controllers"
+	"github.com/igntnk/scholarship_point_system/jwk"
+	"github.com/igntnk/scholarship_point_system/middleware"
 	"github.com/igntnk/scholarship_point_system/repository"
 	"github.com/igntnk/scholarship_point_system/service"
 	"github.com/igntnk/scholarship_point_system/web"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
-	"os/signal"
-	"syscall"
-
-	"context"
 	"github.com/rs/zerolog"
 	"os"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
@@ -57,34 +55,29 @@ func main() {
 
 	conn := trmpgx.DefaultCtxGetter.DefaultTrOrDB(mainCtx, pool)
 
-	// JWK
 	privateKey, err := os.ReadFile(cfg.Secure.JWTPrivateKeyPath)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("failed to read jwt private key")
 		return
 	}
+
 	jwkey := jwk.CreateJWK(privateKey)
 
-	// Permission Login
 	permissionRepo := repository.NewPermissionRepository(conn)
 	permissionService := service.NewPermissionService(permissionRepo)
 	m := middleware.NewMiddleware(permissionService, jwkey)
 	permissionController := controllers.NewPermissionController(permissionService, m)
 
-	// Category Logic
 	categoryRepo := repository.NewCategoryRepository(conn)
 	orderService := service.NewCategoryService(categoryRepo)
 	orderController := controllers.NewCategoryController(orderService, m)
 
-	// Password Manager
 	passwordManager := service.NewPasswordManager(cfg.Secure.PasswordBcryptCost)
 
-	// User Logic
 	userRepo := repository.NewUserRepository(conn)
 	userService := service.NewUserService(userRepo, passwordManager)
 	userController := controllers.NewUserController(userService, m)
 
-	// Auth Logic
 	authRepo := repository.NewAuthRepository(conn)
 	authService := service.NewAuthService(
 		authRepo,
@@ -98,7 +91,6 @@ func main() {
 	)
 	authController := controllers.NewAuthController(authService, m)
 
-	// Achievement Logic
 	achievementRepo := repository.NewAchievementRepository(conn)
 	achievementService := service.NewAchievementService(achievementRepo, userRepo)
 	achievementController := controllers.NewAchievementController(achievementService, m)
@@ -106,6 +98,7 @@ func main() {
 	httpServer, err := web.New(
 		logger,
 		cfg.Server.RESTPort,
+		cfg.CORS,
 		orderController,
 		permissionController,
 		userController,
@@ -117,7 +110,6 @@ func main() {
 		return
 	}
 
-	// Actualize Auth Info
 	adminUUID, err := authService.ActualizeAdmin(mainCtx, cfg.Secure.AdminEmail, cfg.Secure.AdminPassword)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("failed to reload admin data")

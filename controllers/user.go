@@ -4,7 +4,9 @@ import (
 	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/igntnk/scholarship_point_system/controllers/requests"
+	"github.com/igntnk/scholarship_point_system/errors/authorization"
 	"github.com/igntnk/scholarship_point_system/errors/parsing"
+	"github.com/igntnk/scholarship_point_system/jwk"
 	"github.com/igntnk/scholarship_point_system/middleware"
 	"github.com/igntnk/scholarship_point_system/service"
 	"net/http"
@@ -30,8 +32,12 @@ func (c userController) Register(r *gin.Engine) {
 	group := r.Group("/user", c.m.CheckAccess)
 	group.GET("/simple", c.GetSimpleUserList)
 	group.GET("/simple/:uuid", c.GetSimpleUserByUUID)
-	group.POST("")
+	group.POST("", c.CreateUser)
 	group.PUT("/:uuid", c.UpdateUser)
+
+	self := r.Group("/user", c.m.Authorize)
+	self.GET("/me", c.GetMe)
+	self.PUT("/me", c.UpdateMe)
 }
 
 func (c userController) GetSimpleUserList(context *gin.Context) {
@@ -132,6 +138,63 @@ func (c userController) UpdateUser(context *gin.Context) {
 	uuid := context.Param("uuid")
 	request := requests.UpdateUser{
 		UUID: uuid,
+	}
+	if err = context.ShouldBindJSON(&request); err != nil {
+		err = errors.Join(err, parsing.InputDataErr)
+		return
+	}
+
+	if err = c.userService.UpdateUser(context, request); err != nil {
+		return
+	}
+
+	context.JSON(http.StatusOK, createResponse("Информация о пользователе успешно обновлена"))
+}
+
+func (c userController) GetMe(context *gin.Context) {
+	var err error
+
+	defer func() {
+		if err != nil {
+			processHttpError(context, err)
+		}
+	}()
+
+	accessClaims, ok := context.Get(jwk.ClaimsContextKey)
+	if !ok {
+		err = authorization.UnauthorizedErr
+		return
+	}
+
+	userUUID := accessClaims.(jwk.SPSAccessClaims).User.UUID
+
+	user, err := c.userService.GetSimpleUserByUUID(context, userUUID)
+	if err != nil {
+		return
+	}
+
+	context.JSON(http.StatusOK, createResponse(user))
+}
+
+func (c userController) UpdateMe(context *gin.Context) {
+	var err error
+
+	defer func() {
+		if err != nil {
+			processHttpError(context, err)
+		}
+	}()
+
+	accessClaims, ok := context.Get(jwk.ClaimsContextKey)
+	if !ok {
+		err = authorization.UnauthorizedErr
+		return
+	}
+
+	userUUID := accessClaims.(jwk.SPSAccessClaims).User.UUID
+
+	request := requests.UpdateUser{
+		UUID: userUUID,
 	}
 	if err = context.ShouldBindJSON(&request); err != nil {
 		err = errors.Join(err, parsing.InputDataErr)
