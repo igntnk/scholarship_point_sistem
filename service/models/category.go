@@ -1,10 +1,13 @@
 package models
 
 type Category struct {
-	UUID               string  `json:"uuid"`
-	Name               string  `json:"name"`
-	ParentCategoryUUID string  `json:"parent_uuid"`
-	PointAmount        float32 `json:"point_amount"`
-	Comment            string  `json:"comment"`
-	Status             string  `json:"status"`
+	UUID   string           `json:"uuid,omitempty"`
+	Name   string           `json:"name"`
+	Points float32          `json:"points"`
+	Values []CategoryValues `json:"values,omitempty"`
+}
+
+type CategoryValues struct {
+	Name   string  `json:"name"`
+	Points float32 `json:"points"`
 }

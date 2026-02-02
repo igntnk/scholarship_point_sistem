@@ -4,13 +4,13 @@ import (
 	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/igntnk/scholarship_point_system/controllers/requests"
+	"github.com/igntnk/scholarship_point_system/controllers/responses"
 	"github.com/igntnk/scholarship_point_system/errors/authorization"
 	"github.com/igntnk/scholarship_point_system/errors/parsing"
 	"github.com/igntnk/scholarship_point_system/errors/validation"
 	"github.com/igntnk/scholarship_point_system/jwk"
 	"github.com/igntnk/scholarship_point_system/middleware"
 	"github.com/igntnk/scholarship_point_system/service"
-	"github.com/igntnk/scholarship_point_system/service/models"
 	"net/http"
 	"strconv"
 )
@@ -32,11 +32,14 @@ func NewAchievementController(
 
 func (c *achievementController) Register(r *gin.Engine) {
 	group := r.Group("/achievement", c.m.CheckAccess)
-	group.GET("/by_token", c.m.CheckAccess, c.ListMyAchievements)
-	group.GET("/by_user_uuid/:uuid", c.m.CheckAccess)
-	group.POST("", c.m.CheckAccess, c.CreateAchievement)
-	group.DELETE("", c.m.CheckAccess, c.DeleteAchievement)
-	group.PUT("", c.m.CheckAccess, c.UpdateAchievement)
+	group.GET("/by_token", c.ListMyAchievements)
+	group.GET("/by_user_uuid/:uuid", c.ListUserAchievements)
+	group.GET("/:uuid", c.GetAchievementByUUID)
+	group.PUT("/approve/:uuid", c.ApproveAchievement)
+	group.PUT("/decline/:uuid", c.DeclineAchievement)
+	group.POST("", c.CreateAchievement)
+	group.DELETE("", c.DeleteAchievement)
+	group.PUT("", c.UpdateAchievement)
 }
 
 func (c *achievementController) ListMyAchievements(context *gin.Context) {
@@ -60,24 +63,13 @@ func (c *achievementController) ListMyAchievements(context *gin.Context) {
 	strOffset := queryParams.Get("offset")
 
 	if strLimit == "" {
-		modelAchievements, err := c.achievementService.GetUserAchievements(context, accessClaims.(jwk.SPSAccessClaims).User.UUID)
+		var achievements []responses.SimpleAchievement
+		achievements, err = c.achievementService.GetUserAchievements(context, accessClaims.(jwk.SPSAccessClaims).User.UUID)
 		if err != nil {
 			return
 		}
 
-		respAchievement := make([]models.SimpleAchievement, len(modelAchievements))
-		for i, modelAchievement := range modelAchievements {
-			respAchievement[i] = models.SimpleAchievement{
-				UUID:           modelAchievement.UUID,
-				AttachmentLink: modelAchievement.AttachmentLink,
-				Status:         modelAchievement.Status,
-				Comment:        modelAchievement.Comment,
-				CategoryName:   modelAchievement.CategoryName,
-				PointAmount:    modelAchievement.PointAmount,
-			}
-		}
-
-		context.JSON(http.StatusOK, createResponse(respAchievement))
+		context.JSON(http.StatusOK, createResponse(achievements))
 		return
 	}
 
@@ -106,19 +98,30 @@ func (c *achievementController) ListMyAchievements(context *gin.Context) {
 		return
 	}
 
-	respAchievement := make([]models.SimpleAchievement, len(achievements))
-	for i, modelAchievement := range achievements {
-		respAchievement[i] = models.SimpleAchievement{
-			UUID:           modelAchievement.UUID,
-			AttachmentLink: modelAchievement.AttachmentLink,
-			Status:         modelAchievement.Status,
-			Comment:        modelAchievement.Comment,
-			CategoryName:   modelAchievement.CategoryName,
-			PointAmount:    modelAchievement.PointAmount,
+	context.JSON(http.StatusOK, createResponseWithPagination(achievements, limit, offset, totalRecords))
+}
+
+func (c *achievementController) GetAchievementByUUID(context *gin.Context) {
+	var err error
+
+	defer func() {
+		if err != nil {
+			processHttpError(context, err)
 		}
+	}()
+
+	uuid, ok := context.Params.Get("uuid")
+	if !ok {
+		err = errors.Join(validation.WrongInputErr, errors.New("Не предоставлен uuid"))
+		return
 	}
 
-	context.JSON(http.StatusOK, createResponseWithPagination(respAchievement, limit, offset, totalRecords))
+	achievement, err := c.achievementService.GetAchievementByUUID(context, uuid)
+	if err != nil {
+		return
+	}
+
+	context.JSON(http.StatusOK, createResponse(achievement))
 }
 
 func (c *achievementController) ListUserAchievements(context *gin.Context) {
@@ -142,24 +145,13 @@ func (c *achievementController) ListUserAchievements(context *gin.Context) {
 	strOffset := queryParams.Get("offset")
 
 	if strLimit == "" {
-		modelAchievements, err := c.achievementService.GetUserAchievements(context, userUUID)
+		var achievement []responses.SimpleAchievement
+		achievement, err = c.achievementService.GetUserAchievements(context, userUUID)
 		if err != nil {
 			return
 		}
 
-		respAchievement := make([]models.SimpleAchievement, len(modelAchievements))
-		for i, modelAchievement := range modelAchievements {
-			respAchievement[i] = models.SimpleAchievement{
-				UUID:           modelAchievement.UUID,
-				AttachmentLink: modelAchievement.AttachmentLink,
-				Status:         modelAchievement.Status,
-				Comment:        modelAchievement.Comment,
-				CategoryName:   modelAchievement.CategoryName,
-				PointAmount:    modelAchievement.PointAmount,
-			}
-		}
-
-		context.JSON(http.StatusOK, createResponse(respAchievement))
+		context.JSON(http.StatusOK, createResponse(achievement))
 		return
 	}
 
@@ -188,19 +180,7 @@ func (c *achievementController) ListUserAchievements(context *gin.Context) {
 		return
 	}
 
-	respAchievement := make([]models.SimpleAchievement, len(achievements))
-	for i, modelAchievement := range achievements {
-		respAchievement[i] = models.SimpleAchievement{
-			UUID:           modelAchievement.UUID,
-			AttachmentLink: modelAchievement.AttachmentLink,
-			Status:         modelAchievement.Status,
-			Comment:        modelAchievement.Comment,
-			CategoryName:   modelAchievement.CategoryName,
-			PointAmount:    modelAchievement.PointAmount,
-		}
-	}
-
-	context.JSON(http.StatusOK, createResponseWithPagination(respAchievement, limit, offset, totalRecords))
+	context.JSON(http.StatusOK, createResponseWithPagination(achievements, limit, offset, totalRecords))
 }
 
 func (c *achievementController) CreateAchievement(context *gin.Context) {
@@ -217,25 +197,18 @@ func (c *achievementController) CreateAchievement(context *gin.Context) {
 		return
 	}
 
-	achievement := models.Achievement{
-		AttachmentLink: req.AttachmentLink,
-		Comment:        req.Comment,
+	accessClaims, ok := context.Get(jwk.ClaimsContextKey)
+	if !ok {
+		err = authorization.UnauthorizedErr
+		return
 	}
 
-	categories := make([]models.Category, len(req.CategoryUUIDs))
-	for i, uuid := range req.CategoryUUIDs {
-		categories[i].UUID = uuid
-	}
-	achievement.Categories = categories
-
-	uuid, err := c.achievementService.CreateAchievement(context, achievement)
+	uuid, err := c.achievementService.CreateAchievement(context, accessClaims.(jwk.SPSAccessClaims).User.UUID, req)
 	if err != nil {
 		return
 	}
 
-	context.JSON(http.StatusCreated, createResponse(gin.H{
-		"uuid": uuid,
-	}))
+	context.JSON(http.StatusOK, createResponse(uuid))
 }
 
 func (c *achievementController) DeleteAchievement(context *gin.Context) {
@@ -271,21 +244,55 @@ func (c *achievementController) UpdateAchievement(context *gin.Context) {
 		return
 	}
 
-	achievement := models.Achievement{
-		AttachmentLink: req.AttachmentLink,
-		Comment:        req.Comment,
-	}
-
-	categories := make([]models.Category, len(req.CategoryUUIDs))
-	for i, uuid := range req.CategoryUUIDs {
-		categories[i].UUID = uuid
-	}
-	achievement.Categories = categories
-
-	err = c.achievementService.UpdateAchievement(context, achievement)
+	err = c.achievementService.UpdateAchievement(context, req)
 	if err != nil {
 		return
 	}
 
 	context.JSON(http.StatusCreated, createResponse("Запись успешно обновлена"))
+}
+
+func (c *achievementController) ApproveAchievement(context *gin.Context) {
+	var err error
+
+	defer func() {
+		if err != nil {
+			processHttpError(context, err)
+		}
+	}()
+
+	uuid, ok := context.Params.Get("uuid")
+	if !ok {
+		err = errors.Join(validation.WrongInputErr, errors.New("Не предоставлен uuid"))
+		return
+	}
+
+	err = c.achievementService.ApproveAchievement(context, uuid)
+	if err != nil {
+		return
+	}
+
+	context.JSON(http.StatusOK, createResponse("Достижение успешно принятоg"))
+}
+
+func (c *achievementController) DeclineAchievement(context *gin.Context) {
+	var err error
+
+	defer func() {
+		if err != nil {
+			processHttpError(context, err)
+		}
+	}()
+	uuid, ok := context.Params.Get("uuid")
+	if !ok {
+		err = errors.Join(validation.WrongInputErr, errors.New("Не предоставлен uuid"))
+		return
+	}
+
+	err = c.achievementService.DeclineAchievement(context, uuid)
+	if err != nil {
+		return
+	}
+
+	context.JSON(http.StatusOK, createResponse("Достижение успешно отклонено"))
 }

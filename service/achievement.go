@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/igntnk/scholarship_point_system/controllers/requests"
 	"github.com/igntnk/scholarship_point_system/controllers/responses"
 	"github.com/igntnk/scholarship_point_system/errors/validation"
 	"github.com/igntnk/scholarship_point_system/repository"
@@ -12,9 +13,9 @@ import (
 type AchievementService interface {
 	GetUserAchievements(ctx context.Context, uuid string) ([]responses.SimpleAchievement, error)
 	GetUserAchievementsWithPagination(ctx context.Context, uuid string, limit, offset int) ([]responses.SimpleAchievement, int, error)
-	GetAchievementByUUID(ctx context.Context, uuid string) (responses.Achievement, error)
-	CreateAchievement(ctx context.Context, achievement models.Achievement) (string, error)
-	UpdateAchievement(ctx context.Context, achievement models.Achievement) error
+	GetAchievementByUUID(ctx context.Context, uuid string) (responses.FullAchievement, error)
+	CreateAchievement(ctx context.Context, userUUID string, achievement requests.UpsertAchievement) (string, error)
+	UpdateAchievement(ctx context.Context, achievement requests.UpsertAchievement) error
 	RemoveAchievement(ctx context.Context, uuid string) error
 	ApproveAchievement(ctx context.Context, uuid string) error
 	DeclineAchievement(ctx context.Context, uuid string) error
@@ -56,6 +57,7 @@ func (s *achievementService) GetUserAchievements(ctx context.Context, uuid strin
 			Comment:        achievement.Comment,
 			Status:         achievement.Status,
 			CategoryName:   achievement.CategoryName,
+			CategoryUUID:   achievement.CategoryUUID,
 			PointAmount:    achievement.PointAmount,
 			AttachmentLink: achievement.AttachmentLink,
 		}
@@ -93,52 +95,25 @@ func (s *achievementService) GetUserAchievementsWithPagination(ctx context.Conte
 	return response, totalRecords, nil
 }
 
-func (s *achievementService) GetAchievementByUUID(ctx context.Context, uuid string) (responses.Achievement, error) {
-	simpleAchievement, err := s.achievementRepo.GetSimpleUserAchievementByUUID(ctx, uuid)
-	if err != nil {
-		return responses.Achievement{}, errors.Join(err, errors.New("Такого достижения нет"))
-	}
-
-	cats, err := s.achievementRepo.GetAchievementCategories(ctx, simpleAchievement.UUID)
-	if err != nil {
-		return responses.Achievement{}, err
-	}
-
-	respCats := make([]responses.Category, len(cats))
-	for i, cat := range cats {
-		respCats[i] = responses.Category{
-			UUID: cat.UUID,
-			Name: cat.Name,
-		}
-	}
-
-	resAchievement := responses.Achievement{
-		UUID:           simpleAchievement.UUID,
-		Comment:        simpleAchievement.Comment,
-		Status:         simpleAchievement.Status,
-		Categories:     respCats,
-		PointAmount:    simpleAchievement.PointAmount,
-		AttachmentLink: simpleAchievement.AttachmentLink,
-	}
-
-	return resAchievement, nil
+func (s *achievementService) GetAchievementByUUID(ctx context.Context, uuid string) (responses.FullAchievement, error) {
+	return s.achievementRepo.GetAchievementByUUID(ctx, uuid)
 }
 
-func (s *achievementService) CreateAchievement(ctx context.Context, a models.Achievement) (string, error) {
+func (s *achievementService) CreateAchievement(ctx context.Context, userUUID string, a requests.UpsertAchievement) (string, error) {
 	if a.AttachmentLink == "" {
 		return "", errors.Join(validation.WrongInputErr, errors.New("Пустая ссылка для вложения"))
 	}
 
-	return s.achievementRepo.CreateAchievementWithCategories(ctx, a)
+	return s.achievementRepo.CreateAchievement(ctx, userUUID, a)
 }
 
-func (s *achievementService) UpdateAchievement(ctx context.Context, a models.Achievement) error {
+func (s *achievementService) UpdateAchievement(ctx context.Context, a requests.UpsertAchievement) error {
 	if a.AttachmentLink == "" {
 		return errors.Join(validation.WrongInputErr, errors.New("Пустая ссылка для вложения"))
 	}
 
-	if len(a.Categories) == 0 {
-		return errors.Join(validation.WrongInputErr, errors.New("Нет категорий у достижения"))
+	if len(a.CategoryUUID) == 0 {
+		return errors.Join(validation.WrongInputErr, errors.New("Нет категории у достижения"))
 	}
 
 	dbAchievement, err := s.achievementRepo.GetSimpleUserAchievementByUUID(ctx, a.UUID)
@@ -152,13 +127,16 @@ func (s *achievementService) UpdateAchievement(ctx context.Context, a models.Ach
 	}
 
 	hasDiff := false
-	for _, cat := range a.Categories {
+	for _, cat := range a.Subcategories {
 		found := false
 		for _, dbCat := range dbCats {
 			if dbCat.UUID == cat.UUID {
 				found = true
 				break
 			}
+		}
+		if !found {
+			found = cat.UUID == a.CategoryUUID
 		}
 		if !found {
 			hasDiff = true

@@ -2,7 +2,7 @@
 -- +goose StatementBegin
 
 insert into status (internal_value, display_value, type)
-values ('active', 'Активнао', 'category_staus');
+values ('active', 'Активно', 'category_staus');
 insert into status (internal_value, display_value, type)
 values ('unactive', 'Неактивно', 'category_staus');
 

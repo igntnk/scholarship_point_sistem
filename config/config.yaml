@@ -1,16 +1,16 @@
 server:
-  rest_port: 9000
+  rest_port: 10000
 
 database:
   uri: "postgresql://pgas_user:Pass123@db.mars-shelter.com:7010/pgas"
 
 secure:
   password_bcrypt_cost: 0
-  jwt_private_key_path: "./cert/jwt_private.pem"
+  jwt_private_key_path: "./cert/jwtRS256.key"
   admin_group_name: ""
   admin_role_name: ""
   refresh_token_duration: 2592000
-  token_duration: 900
+  token_duration: 100000
   admin_email: "admin@gmail.com"
   admin_password: "1234"
 

@@ -33,7 +33,7 @@ func (c categoryController) Register(r *gin.Engine) {
 	group := r.Group("/category", c.m.CheckAccess)
 	group.POST("", c.Create)
 	group.GET("/parent", c.GetParentCategories)
-	group.GET("/childs/:uuid", c.GetChildCategories)
+	group.GET("/children/:uuid", c.GetChildCategories)
 	group.GET("/:uuid", c.GetByUUID)
 	group.PUT("/:uuid", c.Update)
 	group.DELETE("/:uuid", c.DeleteCategory)

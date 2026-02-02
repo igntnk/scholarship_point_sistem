@@ -210,6 +210,58 @@ func (b *BatchInsertResourcesBatchResults) Close() error {
 	return b.br.Close()
 }
 
+const createAchievementCategoryValue = `-- name: CreateAchievementCategoryValue :batchexec
+insert into achievement_category_value (achievement_uuid, category_value_uuid)
+VALUES ($1, (select cv.uuid from category_value cv where cv.category_uuid = $2 and cv.name = $3))
+`
+
+type CreateAchievementCategoryValueBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type CreateAchievementCategoryValueParams struct {
+	AchievementUuid pgtype.UUID
+	CategoryUuid    pgtype.UUID
+	Name            string
+}
+
+func (q *Queries) CreateAchievementCategoryValue(ctx context.Context, arg []CreateAchievementCategoryValueParams) *CreateAchievementCategoryValueBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.AchievementUuid,
+			a.CategoryUuid,
+			a.Name,
+		}
+		batch.Queue(createAchievementCategoryValue, vals...)
+	}
+	br := q.db.SendBatch(ctx, batch)
+	return &CreateAchievementCategoryValueBatchResults{br, len(arg), false}
+}
+
+func (b *CreateAchievementCategoryValueBatchResults) Exec(f func(int, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		if b.closed {
+			if f != nil {
+				f(t, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		_, err := b.br.Exec()
+		if f != nil {
+			f(t, err)
+		}
+	}
+}
+
+func (b *CreateAchievementCategoryValueBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
 const createBatchAchievementCategory = `-- name: CreateBatchAchievementCategory :batchexec
 insert into achievement_category (category_uuid, achievement_uuid)
 values ($1, $2)
@@ -256,6 +308,58 @@ func (b *CreateBatchAchievementCategoryBatchResults) Exec(f func(int, error)) {
 }
 
 func (b *CreateBatchAchievementCategoryBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const createCategoryValues = `-- name: CreateCategoryValues :batchexec
+insert into category_value (name, category_uuid, point)
+VALUES ($1, $2, $3)
+`
+
+type CreateCategoryValuesBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type CreateCategoryValuesParams struct {
+	Name         string
+	CategoryUuid pgtype.UUID
+	Point        pgtype.Numeric
+}
+
+func (q *Queries) CreateCategoryValues(ctx context.Context, arg []CreateCategoryValuesParams) *CreateCategoryValuesBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.Name,
+			a.CategoryUuid,
+			a.Point,
+		}
+		batch.Queue(createCategoryValues, vals...)
+	}
+	br := q.db.SendBatch(ctx, batch)
+	return &CreateCategoryValuesBatchResults{br, len(arg), false}
+}
+
+func (b *CreateCategoryValuesBatchResults) Exec(f func(int, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		if b.closed {
+			if f != nil {
+				f(t, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		_, err := b.br.Exec()
+		if f != nil {
+			f(t, err)
+		}
+	}
+}
+
+func (b *CreateCategoryValuesBatchResults) Close() error {
 	b.closed = true
 	return b.br.Close()
 }

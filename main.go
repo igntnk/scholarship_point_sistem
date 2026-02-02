@@ -95,6 +95,13 @@ func main() {
 	achievementService := service.NewAchievementService(achievementRepo, userRepo)
 	achievementController := controllers.NewAchievementController(achievementService, m)
 
+	ratingService := service.NewRatingService(userRepo)
+	ratingController := controllers.NewRatingController(m, ratingService)
+
+	constantRepo := repository.NewConstantRepository(conn)
+	constantService := service.NewConstantService(constantRepo)
+	constantController := controllers.NewConstantController(m, constantService)
+
 	httpServer, err := web.New(
 		logger,
 		cfg.Server.RESTPort,
@@ -104,6 +111,8 @@ func main() {
 		userController,
 		authController,
 		achievementController,
+		ratingController,
+		constantController,
 	)
 	if err != nil {
 		logger.Fatal().Err(err).Send()

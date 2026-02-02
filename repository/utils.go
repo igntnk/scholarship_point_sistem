@@ -3,6 +3,7 @@ package repository
 import (
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/jackc/pgx/v5/pgtype"
+	"strconv"
 	"time"
 )
 
@@ -71,6 +72,29 @@ func ParseToPgDate(input any) (pgtype.Date, error) {
 	pgDate.Time = date
 	pgDate.Valid = true
 	return pgDate, nil
+}
+
+func ParseToPgNumeric(input any) (pgtype.Numeric, error) {
+	pgPointAmount := pgtype.Numeric{}
+	var err error
+
+	switch inp := input.(type) {
+	case string:
+		err = pgPointAmount.Scan(inp)
+	case float64:
+		err = pgPointAmount.Scan(strconv.FormatFloat(inp, 'g', -1, 32))
+	case float32:
+		err = pgPointAmount.Scan(strconv.FormatFloat(float64(inp), 'g', -1, 32))
+	case int:
+		err = pgPointAmount.Scan(strconv.Itoa(inp))
+	case int64:
+		err = pgPointAmount.Scan(strconv.FormatInt(inp, 10))
+	}
+
+	if err != nil {
+		return pgPointAmount, err
+	}
+	return pgPointAmount, nil
 }
 
 func decode[T any](input any) (T, error) {

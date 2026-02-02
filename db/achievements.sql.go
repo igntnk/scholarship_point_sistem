@@ -13,8 +13,9 @@ import (
 
 const createAchievement = `-- name: CreateAchievement :one
 insert into achievement (comment, attachment_link, user_uuid, status_uuid)
-values ($1, $2, $3, (select s.uuid from status s where s.internal_value = 'unapproved' and s.type = 'achievement_status'))
-    returning uuid
+values ($1, $2, $3,
+        (select s.uuid from status s where s.internal_value = 'unapproved' and s.type = 'achievement_status'))
+returning uuid
 `
 
 type CreateAchievementParams struct {
@@ -30,27 +31,96 @@ func (q *Queries) CreateAchievement(ctx context.Context, arg CreateAchievementPa
 	return uuid, err
 }
 
+const deleteAchievementCategoryValueByAchievementUUID = `-- name: DeleteAchievementCategoryValueByAchievementUUID :exec
+delete
+from achievement_category_value
+where achievement_uuid = $1
+`
+
+func (q *Queries) DeleteAchievementCategoryValueByAchievementUUID(ctx context.Context, achievementUuid pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteAchievementCategoryValueByAchievementUUID, achievementUuid)
+	return err
+}
+
+const getAchievementSubCategories = `-- name: GetAchievementSubCategories :many
+select c.uuid, c.name, cv.name as selected_value, cv.point, av_cv.name as available_value
+from category c
+         join achievement_category ac on ac.category_uuid = c.uuid
+         join achievement_category_value acv on acv.achievement_uuid = ac.achievement_uuid
+         join category_value cv on cv.uuid = acv.category_value_uuid
+         join category_value av_cv on av_cv.category_uuid = c.uuid
+where parent_category is not null
+  and ac.achievement_uuid = $1
+`
+
+type GetAchievementSubCategoriesRow struct {
+	Uuid           pgtype.UUID
+	Name           string
+	SelectedValue  string
+	Point          pgtype.Numeric
+	AvailableValue string
+}
+
+func (q *Queries) GetAchievementSubCategories(ctx context.Context, achievementUuid pgtype.UUID) ([]GetAchievementSubCategoriesRow, error) {
+	rows, err := q.db.Query(ctx, getAchievementSubCategories, achievementUuid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAchievementSubCategoriesRow
+	for rows.Next() {
+		var i GetAchievementSubCategoriesRow
+		if err := rows.Scan(
+			&i.Uuid,
+			&i.Name,
+			&i.SelectedValue,
+			&i.Point,
+			&i.AvailableValue,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getSimpleUserAchievementByUUID = `-- name: GetSimpleUserAchievementByUUID :one
-select a.uuid, a.comment, a.attachment_link, a.user_uuid, a.status_uuid, c.name as category_name, s.display_value as status, sum(c_p.point_amount) as point_amount
+select a.uuid, a.comment, a.attachment_link, a.user_uuid, a.status_uuid, a.achievement_date,
+       c.name                         as category_name,
+       s.display_value                as status,
+       c.uuid                         as category_uuid,
+       c.point_amount                 as base_point_amount,
+       sum(cv.point) + c.point_amount as point_amount,
+       count(*) over ()               as total_records
 from achievement a
-         join user_achievement ua on a.uuid = ua.achievement_uuid
          join achievement_category ac on ac.achievement_uuid = a.uuid
-         join category c on c.uuid = ac.category_uuid and parent_category is null
-         join category c_p on c.uuid = ac.category_uuid
+         left join category c on c.uuid = ac.category_uuid and parent_category is null
+         left join category c_p on c_p.uuid = ac.category_uuid and c_p.parent_category is not null
+         join achievement_category_value acv on acv.achievement_uuid = a.uuid
+         join category_value cv on cv.uuid = acv.category_value_uuid
          join status s on s.uuid = a.status_uuid
 where a.uuid = $1
-group by c.name, a.uuid, a.comment, attachment_link, a.user_uuid, a.status_uuid, s.display_value
+  and c.uuid is not null
+group by c.name, a.uuid, a.comment, c.point_amount, c.uuid, attachment_link, a.user_uuid, a.status_uuid,
+         s.display_value
 `
 
 type GetSimpleUserAchievementByUUIDRow struct {
-	Uuid           pgtype.UUID
-	Comment        pgtype.Text
-	AttachmentLink string
-	UserUuid       pgtype.UUID
-	StatusUuid     pgtype.UUID
-	CategoryName   string
-	Status         pgtype.Text
-	PointAmount    int64
+	Uuid            pgtype.UUID
+	Comment         pgtype.Text
+	AttachmentLink  string
+	UserUuid        pgtype.UUID
+	StatusUuid      pgtype.UUID
+	AchievementDate pgtype.Date
+	CategoryName    pgtype.Text
+	Status          pgtype.Text
+	CategoryUuid    pgtype.UUID
+	BasePointAmount pgtype.Numeric
+	PointAmount     int32
+	TotalRecords    int64
 }
 
 func (q *Queries) GetSimpleUserAchievementByUUID(ctx context.Context, uuid pgtype.UUID) (GetSimpleUserAchievementByUUIDRow, error) {
@@ -62,34 +132,49 @@ func (q *Queries) GetSimpleUserAchievementByUUID(ctx context.Context, uuid pgtyp
 		&i.AttachmentLink,
 		&i.UserUuid,
 		&i.StatusUuid,
+		&i.AchievementDate,
 		&i.CategoryName,
 		&i.Status,
+		&i.CategoryUuid,
+		&i.BasePointAmount,
 		&i.PointAmount,
+		&i.TotalRecords,
 	)
 	return i, err
 }
 
 const getUserAchievements = `-- name: GetUserAchievements :many
-select a.uuid, a.comment, a.attachment_link, a.user_uuid, a.status_uuid, c.name as category_name, s.display_value as status, sum(c_p.point_amount) as point_amount
+select a.uuid, a.comment, a.attachment_link, a.user_uuid, a.status_uuid, a.achievement_date,
+       c.name                         as category_name,
+       s.display_value                as status,
+       c.uuid                         as category_uuid,
+       sum(cv.point) + c.point_amount as point_amount,
+       count(*) over ()               as total_records
 from achievement a
-         join user_achievement ua on a.uuid = ua.achievement_uuid
          join achievement_category ac on ac.achievement_uuid = a.uuid
-         join category c on c.uuid = ac.category_uuid and parent_category is null
-         join category c_p on c.uuid = ac.category_uuid
+         left join category c on c.uuid = ac.category_uuid and parent_category is null
+         left join category c_p on c_p.uuid = ac.category_uuid and c_p.parent_category is not null
+         join achievement_category_value acv on acv.achievement_uuid = a.uuid
+         join category_value cv on cv.uuid = acv.category_value_uuid
          join status s on s.uuid = a.status_uuid
 where a.user_uuid = $1
-group by c.name, a.uuid, a.comment, attachment_link, a.user_uuid, a.status_uuid, s.display_value
+  and c.uuid is not null
+group by c.name, a.uuid, a.comment, c.point_amount, c.uuid, attachment_link, a.user_uuid, a.status_uuid,
+         s.display_value
 `
 
 type GetUserAchievementsRow struct {
-	Uuid           pgtype.UUID
-	Comment        pgtype.Text
-	AttachmentLink string
-	UserUuid       pgtype.UUID
-	StatusUuid     pgtype.UUID
-	CategoryName   string
-	Status         pgtype.Text
-	PointAmount    int64
+	Uuid            pgtype.UUID
+	Comment         pgtype.Text
+	AttachmentLink  string
+	UserUuid        pgtype.UUID
+	StatusUuid      pgtype.UUID
+	AchievementDate pgtype.Date
+	CategoryName    pgtype.Text
+	Status          pgtype.Text
+	CategoryUuid    pgtype.UUID
+	PointAmount     int32
+	TotalRecords    int64
 }
 
 func (q *Queries) GetUserAchievements(ctx context.Context, userUuid pgtype.UUID) ([]GetUserAchievementsRow, error) {
@@ -107,9 +192,12 @@ func (q *Queries) GetUserAchievements(ctx context.Context, userUuid pgtype.UUID)
 			&i.AttachmentLink,
 			&i.UserUuid,
 			&i.StatusUuid,
+			&i.AchievementDate,
 			&i.CategoryName,
 			&i.Status,
+			&i.CategoryUuid,
 			&i.PointAmount,
+			&i.TotalRecords,
 		); err != nil {
 			return nil, err
 		}
@@ -122,16 +210,24 @@ func (q *Queries) GetUserAchievements(ctx context.Context, userUuid pgtype.UUID)
 }
 
 const getUserAchievementsWithPagination = `-- name: GetUserAchievementsWithPagination :many
-select a.uuid, a.comment, a.attachment_link, a.user_uuid, a.status_uuid, c.name as category_name, s.display_value as status, sum(c_p.point_amount) as point_amount, count(*) over() as total_records
+select a.uuid, a.comment, a.attachment_link, a.user_uuid, a.status_uuid, a.achievement_date,
+       c.name                         as category_name,
+       s.display_value                as status,
+       c.uuid                         as category_uuid,
+       sum(cv.point) + c.point_amount as point_amount,
+       count(*) over ()               as total_records
 from achievement a
-         join user_achievement ua on a.uuid = ua.achievement_uuid
          join achievement_category ac on ac.achievement_uuid = a.uuid
-         join category c on c.uuid = ac.category_uuid and parent_category is null
-         join category c_p on c.uuid = ac.category_uuid
+         left join category c on c.uuid = ac.category_uuid and parent_category is null
+         left join category c_p on c_p.uuid = ac.category_uuid and c_p.parent_category is not null
+         join achievement_category_value acv on acv.achievement_uuid = a.uuid
+         join category_value cv on cv.uuid = acv.category_value_uuid
          join status s on s.uuid = a.status_uuid
 where a.user_uuid = $1
-group by c.name, a.uuid, a.comment, attachment_link, a.user_uuid, a.status_uuid, s.display_value
-    limit $2 offset $3
+  and c.uuid is not null
+group by c.name, a.uuid, a.comment, c.point_amount, c.uuid, attachment_link, a.user_uuid, a.status_uuid,
+         s.display_value
+limit $2 offset $3
 `
 
 type GetUserAchievementsWithPaginationParams struct {
@@ -141,15 +237,17 @@ type GetUserAchievementsWithPaginationParams struct {
 }
 
 type GetUserAchievementsWithPaginationRow struct {
-	Uuid           pgtype.UUID
-	Comment        pgtype.Text
-	AttachmentLink string
-	UserUuid       pgtype.UUID
-	StatusUuid     pgtype.UUID
-	CategoryName   string
-	Status         pgtype.Text
-	PointAmount    int64
-	TotalRecords   int64
+	Uuid            pgtype.UUID
+	Comment         pgtype.Text
+	AttachmentLink  string
+	UserUuid        pgtype.UUID
+	StatusUuid      pgtype.UUID
+	AchievementDate pgtype.Date
+	CategoryName    pgtype.Text
+	Status          pgtype.Text
+	CategoryUuid    pgtype.UUID
+	PointAmount     int32
+	TotalRecords    int64
 }
 
 func (q *Queries) GetUserAchievementsWithPagination(ctx context.Context, arg GetUserAchievementsWithPaginationParams) ([]GetUserAchievementsWithPaginationRow, error) {
@@ -167,8 +265,10 @@ func (q *Queries) GetUserAchievementsWithPagination(ctx context.Context, arg Get
 			&i.AttachmentLink,
 			&i.UserUuid,
 			&i.StatusUuid,
+			&i.AchievementDate,
 			&i.CategoryName,
 			&i.Status,
+			&i.CategoryUuid,
 			&i.PointAmount,
 			&i.TotalRecords,
 		); err != nil {

@@ -9,6 +9,7 @@ type SimpleUser struct {
 	BirthDate       string `json:"birth_date"`
 	Email           string `json:"email"`
 	PhoneNumber     string `json:"phone_number"`
+	Status          string `json:"status"`
 }
 
 type UserWithCredentials struct {

@@ -13,17 +13,10 @@ import (
 	"github.com/igntnk/scholarship_point_system/service/models"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"strconv"
 )
 
 type CategoryService interface {
-	CreateCategory(
-		ctx context.Context,
-		category requests.CreateCategory,
-	) (
-		uuid string,
-		err error,
-	)
+	CreateCategory(ctx context.Context, category requests.CreateCategory) (uuid string, err error)
 	GetCategoryByUuid(ctx context.Context, uuid string) (models.Category, error)
 	GetParentCategoriesWithPagination(ctx context.Context, limit, offset int) ([]models.Category, int, error)
 	GetParentCategories(ctx context.Context) ([]models.Category, error)
@@ -50,56 +43,11 @@ func (s categoryService) CreateCategory(
 	err error,
 ) {
 
-	pgParentUuid := pgtype.UUID{}
-	if category.ParentUuid == "" {
-		pgParentUuid.Valid = false
-		err = s.categoryRepo.CheckCategoryExistsByNameAndParentNull(ctx, category.Name)
-		if err != nil {
-			if !errors.Is(err, pgx.ErrNoRows) {
-				return "", unexpected.RequestErr
-			}
-		} else {
-			return "", validation.RecordAlreadyExistsErr
-		}
-	} else {
-		if err = pgParentUuid.Scan(category.ParentUuid); err != nil {
-			return "", err
-		}
-		err = s.categoryRepo.CheckCategoryExistsByNameAndParentUUID(ctx, db.GetCategoryByNameAndParentUUIDParams{
-			Name:           category.Name,
-			ParentCategory: pgParentUuid,
-		})
-		if err != nil {
-			if !errors.Is(err, pgx.ErrNoRows) {
-				return uuid, errors.Join(err, unexpected.RequestErr)
-			}
-		} else {
-			return "", validation.RecordAlreadyExistsErr
-		}
+	if category.ParentUuid != "" {
+		return s.categoryRepo.CreateSubCategory(ctx, category.Name, category.ParentUuid, category.Values)
 	}
 
-	pgPointAmount := pgtype.Numeric{}
-	if err = pgPointAmount.Scan(strconv.FormatFloat(float64(category.PointAmount), 'g', -1, 32)); err != nil {
-		return uuid, errors.Join(err, parsing.InputDataErr)
-	}
-
-	args := db.CreateCategoryParams{
-		Name:           category.Name,
-		PointAmount:    pgPointAmount,
-		ParentCategory: pgParentUuid,
-		Comment: pgtype.Text{
-			String: category.Comment,
-			Valid:  true,
-		},
-	}
-
-	pgUuid, err := s.categoryRepo.CreateCategory(ctx, args)
-	if err != nil {
-		return uuid, errors.Join(err, unexpected.RequestErr)
-	}
-
-	uuid = pgUuid.String()
-	return
+	return s.categoryRepo.CreateCategory(ctx, category.Name, category.Points)
 }
 
 func (s categoryService) GetCategoryByUuid(
@@ -127,12 +75,9 @@ func (s categoryService) GetCategoryByUuid(
 		return models.Category{}, errors.Join(err, parsing.OutputDataErr)
 	}
 	return models.Category{
-		UUID:               dbCategory.Uuid.String(),
-		Name:               dbCategory.Name,
-		ParentCategoryUUID: dbCategory.ParentCategory.String(),
-		PointAmount:        float32(dbFloat.Float64),
-		Comment:            dbCategory.Comment.String,
-		Status:             dbCategory.DisplayValue.String,
+		UUID:   dbCategory.Uuid.String(),
+		Name:   dbCategory.Name,
+		Points: float32(dbFloat.Float64),
 	}, nil
 }
 
@@ -157,12 +102,9 @@ func (s categoryService) GetParentCategoriesWithPagination(ctx context.Context, 
 			return nil, 0, errors.Join(err, parsing.OutputDataErr)
 		}
 		categories[i] = models.Category{
-			UUID:               dbCategory.Uuid.String(),
-			Name:               dbCategory.Name,
-			ParentCategoryUUID: dbCategory.ParentCategory.String(),
-			PointAmount:        float32(dbFloat.Float64),
-			Comment:            dbCategory.Comment.String,
-			Status:             dbCategory.DisplayValue.String,
+			UUID:   dbCategory.Uuid.String(),
+			Name:   dbCategory.Name,
+			Points: float32(dbFloat.Float64),
 		}
 	}
 
@@ -185,12 +127,9 @@ func (s categoryService) GetParentCategories(ctx context.Context) ([]models.Cate
 			return nil, errors.Join(err, parsing.OutputDataErr)
 		}
 		categories[i] = models.Category{
-			UUID:               dbCategory.Uuid.String(),
-			Name:               dbCategory.Name,
-			ParentCategoryUUID: dbCategory.ParentCategory.String(),
-			PointAmount:        float32(dbFloat.Float64),
-			Comment:            dbCategory.Comment.String,
-			Status:             dbCategory.DisplayValue.String,
+			UUID:   dbCategory.Uuid.String(),
+			Name:   dbCategory.Name,
+			Points: float32(dbFloat.Float64),
 		}
 	}
 
@@ -205,10 +144,19 @@ func (s categoryService) GetChildCategories(ctx context.Context, uuid string) ([
 
 	resp := make([]responses.Category, len(modelCategories))
 	for i, modelCategory := range modelCategories {
+
+		catVals := make([]responses.CategoryValues, len(modelCategory.Values))
+		for i, catVal := range modelCategory.Values {
+			catVals[i] = responses.CategoryValues{
+				Name:   catVal.Name,
+				Points: catVal.Points,
+			}
+		}
+
 		resp[i] = responses.Category{
 			UUID:   modelCategory.UUID,
 			Name:   modelCategory.Name,
-			Points: modelCategory.PointAmount,
+			Values: catVals,
 		}
 	}
 
@@ -245,28 +193,9 @@ func (s categoryService) UpdateCategory(ctx context.Context, category requests.U
 		return err
 	}
 
-	pgPointAmount := pgtype.Numeric{}
-	if err := pgPointAmount.Scan(strconv.FormatFloat(float64(category.PointAmount), 'g', -1, 32)); err != nil {
-		return errors.Join(err, parsing.InputDataErr)
+	if len(category.Values) != 0 {
+		return s.categoryRepo.UpdateSubCategory(ctx, category.UUID, category.Name, category.Values)
 	}
 
-	pgComment := pgtype.Text{
-		String: category.Comment,
-		Valid:  true,
-	}
-	if category.Comment == "" {
-		pgComment.Valid = false
-	}
-
-	args := db.UpdateCategoryParams{
-		Name:        category.Name,
-		PointAmount: pgPointAmount,
-		Comment:     pgComment,
-		DisplayValue: pgtype.Text{
-			String: category.Status,
-			Valid:  true,
-		},
-		Uuid: pgUUid,
-	}
-	return s.categoryRepo.UpdateCategory(ctx, args)
+	return s.categoryRepo.UpdateCategory(ctx, category.UUID, category.Name, category.Points)
 }

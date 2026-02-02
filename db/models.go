@@ -9,16 +9,22 @@ import (
 )
 
 type Achievement struct {
-	Uuid           pgtype.UUID
-	Comment        pgtype.Text
-	AttachmentLink string
-	UserUuid       pgtype.UUID
-	StatusUuid     pgtype.UUID
+	Uuid            pgtype.UUID
+	Comment         pgtype.Text
+	AttachmentLink  string
+	UserUuid        pgtype.UUID
+	StatusUuid      pgtype.UUID
+	AchievementDate pgtype.Date
 }
 
 type AchievementCategory struct {
 	CategoryUuid    pgtype.UUID
 	AchievementUuid pgtype.UUID
+}
+
+type AchievementCategoryValue struct {
+	AchievementUuid   pgtype.UUID
+	CategoryValueUuid pgtype.UUID
 }
 
 type AuthGroup struct {
@@ -38,6 +44,18 @@ type Category struct {
 	ParentCategory pgtype.UUID
 	Comment        pgtype.Text
 	StatusUuid     pgtype.UUID
+}
+
+type CategoryValue struct {
+	Uuid         pgtype.UUID
+	Name         string
+	CategoryUuid pgtype.UUID
+	Point        pgtype.Numeric
+}
+
+type Constant struct {
+	Name  string
+	Value string
 }
 
 type GroupResource struct {
