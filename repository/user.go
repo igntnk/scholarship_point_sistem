@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"github.com/igntnk/scholarship_point_system/controllers/responses"
@@ -173,66 +174,118 @@ func (r *userRepository) GetRating(
 	int,
 	error,
 ) {
-	sql := `
+	request := `
 select *
 from (select distinct u.uuid,
-                      u.name              as first_name,
+                      u.name,
                       second_name,
                       patronymic,
                       gradebook_number,
                       birth_date,
                       phone_number,
                       email,
-                      s.display_value,
-                      sum(c.point_amount) as user_point_amount,
-                      count(a.uuid)       as achievement_amount,
-                      count(*) over ()    as total_amount
+                      u_s.display_value              as user_status,
+                      sum(cv.point) + c.point_amount as point_amount,
+                      count(a.uuid)                  as achievement_amount,
+                      count(*) over ()               as total_amount,
+                      case
+                          when max(case when a_s.internal_value = 'unapproved' then 1 else 0 end) = 1
+                              then false
+                          else true
+                          end                        as all_achievement_verified
       from sys_user u
-               left join user_achievement ua on ua.user_uuid = u.uuid
-               left join achievement a on a.uuid = ua.achievement_uuid and a.status_uuid in (select uuid
-                                                                                             from status
-                                                                                             where type = 'achievement_status'
-                                                                                               and internal_value != 'declined')
+               left join achievement a on a.user_uuid = u.uuid and a.status_uuid in (select uuid
+                                                                                     from status
+                                                                                     where type = 'achievement_status'
+                                                                                       and internal_value != 'declined')
                left join achievement_category ac on ac.achievement_uuid = a.uuid
-               left join category c on c.uuid = ac.category_uuid and c.status_uuid in (select uuid
-                                                                                       from status
-                                                                                       where type = 'category_status'
-                                                                                         and internal_value = 'active')
-               left join status s on s.uuid = u.status_uuid and s.type = 'user_status'
-      group by u.uuid, first_name, second_name, patronymic, gradebook_number, birth_date, phone_number, email, display_value) as sub
+               left join category c
+                         on c.uuid = ac.category_uuid and parent_category is null and c.status_uuid in (select uuid
+                                                                                                        from status
+                                                                                                        where type = 'category_status'
+                                                                                                          and internal_value = 'active')
+               left join category c_p on c_p.uuid = ac.category_uuid and c_p.parent_category is not null and
+                                         c_p.status_uuid in (select uuid
+                                                             from status
+                                                             where type = 'category_status'
+                                                               and internal_value = 'active')
+               left join achievement_category_value acv on acv.achievement_uuid = a.uuid
+               left join category_value cv on cv.uuid = acv.category_value_uuid
+               left join status u_s on u_s.uuid = u.status_uuid and u_s.type = 'user_status'
+               left join status a_s on a_s.uuid = a.status_uuid and a_s.type = 'achievement_status'
+      where c.point_amount is not null
+      group by u.uuid, u.name, second_name, patronymic, gradebook_number, birth_date, phone_number, email,
+               c.point_amount, u_s.display_value) as sub
+where 1 = 1
 `
-	sql = fmt.Sprintf("%s where 1=1", sql)
 
-	searchString := ""
+	name := ""
+	secondName := ""
+	patronymic := ""
+	gradebookNumber := ""
+	phoneNumber := ""
+	email := ""
+	userStatus := ""
 	for i, searchWord := range searchWords {
 		if searchWord == "" {
 			continue
 		}
-		if i == 0 {
-			searchString += fmt.Sprintf("'%s'", searchWord)
-			continue
-		}
-		searchString += fmt.Sprintf(",'%s'", searchWord)
 
+		if i == 0 {
+			name = fmt.Sprintf("(name ilike '%%%s%%'", searchWord)
+			secondName = fmt.Sprintf("(second_name ilike '%%%s%%'", searchWord)
+			patronymic = fmt.Sprintf("(patronymic ilike '%%%s%%'", searchWord)
+			gradebookNumber = fmt.Sprintf("(gradebook_number ilike '%%%s%%'", searchWord)
+			phoneNumber = fmt.Sprintf("(phone_number ilike '%%%s%%'", searchWord)
+			email = fmt.Sprintf("(email ilike '%%%s%%' ", searchWord)
+			userStatus = fmt.Sprintf("(user_status ilike '%%%s%%'", searchWord)
+		} else {
+			name = fmt.Sprintf("%s or name ilike '%%%s%%'", name, searchWord)
+			secondName = fmt.Sprintf("%s or second_name ilike '%%%s%%'", secondName, searchWord)
+			patronymic = fmt.Sprintf("%s or patronymic ilike '%%%s%%'", patronymic, searchWord)
+			gradebookNumber = fmt.Sprintf("%s or gradebook_number ilike '%%%s%%'", gradebookNumber, searchWord)
+			phoneNumber = fmt.Sprintf("%s or phone_number ilike '%%%s%%'", phoneNumber, searchWord)
+			email = fmt.Sprintf("%s or email ilike '%%%s%%'", email, searchWord)
+			userStatus = fmt.Sprintf("%s or user_status ilike '%%%s%%'", userStatus, searchWord)
+		}
+
+		if i == len(searchWords)-1 {
+			name = fmt.Sprintf("%s)", name)
+			secondName = fmt.Sprintf("%s)", secondName)
+			patronymic = fmt.Sprintf("%s)", patronymic)
+			gradebookNumber = fmt.Sprintf("%s)", gradebookNumber)
+			phoneNumber = fmt.Sprintf("%s)", phoneNumber)
+			email = fmt.Sprintf("%s)", email)
+			userStatus = fmt.Sprintf("%s)", userStatus)
+		}
 	}
 
-	if searchString != "" {
-		sql = fmt.Sprintf("%s and first_name in (%s) or second_name in (%s) or patronymic in (%s) or gradebook_number in (%s) or phone_number in (%s) or email in (%s)", sql, searchString, searchString, searchString, searchString, searchString, searchString)
+	if name != "" {
+		request = fmt.Sprintf("%s and (%s or %s or %s or %s or %s or %s or %s)",
+			request,
+			name,
+			secondName,
+			patronymic,
+			gradebookNumber,
+			phoneNumber,
+			email,
+			userStatus,
+		)
 	}
 
 	if Valid {
-		sql = fmt.Sprintf("%s and status = 'Подтвержденный", sql)
+		request = fmt.Sprintf("%s and user_status = 'Подтвержденный'", request)
 	}
+
+	request = fmt.Sprintf("%s order by point_amount", request)
 
 	if Winners {
-		sql = fmt.Sprintf("%s limit (select value from constants where name = 'available_student_grades')'", sql)
+		request = fmt.Sprintf("%s limit (select value::bigint from constants where name = 'available_student_grades')", request)
 	} else if Limit != 0 {
-		sql = fmt.Sprintf("%s limit %d offset %d", sql, Limit, Offset)
+		request = fmt.Sprintf("%s limit %d offset %d", request, Limit, Offset)
 	}
 
-	sql = fmt.Sprintf("%s order by user_point_amount", sql)
-
-	rows, err := r.querier.Exec(ctx, sql)
+	rows, err := r.querier.Exec(ctx, request)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, 0, validation.NoDataFoundErr
@@ -243,71 +296,51 @@ from (select distinct u.uuid,
 	users := make([]responses.User, 0)
 	TotalAmount := 0
 	for rows.Next() {
-		row := map[string]any{}
-		if err = rows.Scan(&row); err != nil {
+		var (
+			firstName              sql.NullString
+			secondName             sql.NullString
+			uuid                   string
+			patronymic             sql.NullString
+			phoneNumber            sql.NullString
+			gradebookNumber        string
+			status                 string
+			birthDate              sql.NullString
+			email                  sql.NullString
+			allAchievementVerified sql.NullBool
+			pointAmount            float64
+			achievementAmount      int
+		)
+		if err = rows.Scan(
+			&uuid,
+			&firstName,
+			&secondName,
+			&patronymic,
+			&gradebookNumber,
+			&birthDate,
+			&phoneNumber,
+			&email,
+			&status,
+			&pointAmount,
+			&achievementAmount,
+			&TotalAmount,
+			&allAchievementVerified,
+		); err != nil {
 			return nil, 0, errors.Join(err, unexpected.RequestErr)
-		}
-
-		firstName, err := decode[string](row["first_name"])
-		if err != nil {
-			return nil, 0, errors.Join(err, parsing.OutputDataErr)
-		}
-		uuid, err := decode[string](row["uuid"])
-		if err != nil {
-			return nil, 0, errors.Join(err, parsing.OutputDataErr)
-		}
-		secondName, err := decode[string](row["second_name"])
-		if err != nil {
-			return nil, 0, errors.Join(err, parsing.OutputDataErr)
-		}
-		patronymic, err := decode[string](row["patronymic"])
-		if err != nil {
-			return nil, 0, errors.Join(err, parsing.OutputDataErr)
-		}
-		phoneNumber, err := decode[string](row["phone_number"])
-		if err != nil {
-			return nil, 0, errors.Join(err, parsing.OutputDataErr)
-		}
-		gradebookNumber, err := decode[string](row["gradebook_number"])
-		if err != nil {
-			return nil, 0, errors.Join(err, parsing.OutputDataErr)
-		}
-		birthDate, err := decode[string](row["birth_date"])
-		if err != nil {
-			return nil, 0, errors.Join(err, parsing.OutputDataErr)
-		}
-		email, err := decode[string](row["email"])
-		if err != nil {
-			return nil, 0, errors.Join(err, parsing.OutputDataErr)
-		}
-		pointAmount, err := decode[float64](row["user_point_amount"])
-		if err != nil {
-			return nil, 0, errors.Join(err, parsing.OutputDataErr)
-		}
-
-		achievementAmount, err := decode[int](row["achievement_amount"])
-		if err != nil {
-			return nil, 0, errors.Join(err, parsing.OutputDataErr)
-		}
-
-		TotalAmount, err = decode[int](row["total_amount"])
-		if err != nil {
-			return nil, 0, errors.Join(err, parsing.OutputDataErr)
 		}
 
 		user := responses.User{
 			UUID:                   uuid,
-			Name:                   firstName,
-			SecondName:             secondName,
-			Patronymic:             patronymic,
-			BirthDate:              birthDate,
-			PhoneNumber:            phoneNumber,
+			Name:                   firstName.String,
+			SecondName:             secondName.String,
+			Patronymic:             patronymic.String,
+			BirthDate:              birthDate.String,
+			PhoneNumber:            phoneNumber.String,
 			GradebookNumber:        gradebookNumber,
-			Email:                  email,
+			Email:                  email.String,
 			PointsAmount:           pointAmount,
 			AchievementAmount:      achievementAmount,
-			Valid:                  false,
-			AllAchievementVerified: false,
+			Valid:                  status == "Подтвержденный",
+			AllAchievementVerified: allAchievementVerified.Bool,
 		}
 
 		users = append(users, user)
