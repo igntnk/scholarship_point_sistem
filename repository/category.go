@@ -179,6 +179,12 @@ func (r *categoryRepository) UpdateSubCategory(ctx context.Context, uuid, name s
 		return errors.Join(err, parsing.InputDataErr)
 	}
 
+	// Todo сделать нормальные статусы
+	pgDisplayValue, err := ParseToPgText("Активно")
+	if err != nil {
+		return errors.Join(err, parsing.InputDataErr)
+	}
+
 	tx, err := r.txCreator.CreateTx(ctx)
 	if err != nil {
 		return errors.Join(err, unexpected.RequestErr)
@@ -188,14 +194,39 @@ func (r *categoryRepository) UpdateSubCategory(ctx context.Context, uuid, name s
 	qtx := r.queries.WithTx(tx)
 
 	err = qtx.UpdateCategory(ctx, db.UpdateCategoryParams{
-		Name: name,
-		Uuid: catUUID,
+		Name:         name,
+		Uuid:         catUUID,
+		DisplayValue: pgDisplayValue,
 	})
 	if err != nil {
 		return errors.Join(err, unexpected.RequestErr)
 	}
 
-	if err = qtx.DeleteCategoryValues(ctx, catUUID); err != nil {
+	dbCatVal, err := qtx.GetCategoryValuesBySubCategoryUUID(ctx, catUUID)
+	if err != nil {
+		return errors.Join(err, unexpected.RequestErr)
+	}
+
+	valToDelete := make([]string, 0)
+	for _, cat := range dbCatVal {
+		found := false
+		for _, val := range catVal {
+			if cat.Name == val.Name {
+				found = true
+			}
+		}
+		if !found {
+			valToDelete = append(valToDelete, cat.Name)
+		}
+	}
+
+	batchValueDelete := qtx.MakeCategoryValueUnactive(ctx, valToDelete)
+	batchValueDelete.Exec(func(i int, errL error) {
+		if errL != nil {
+			err = errors.Join(errL, errL)
+		}
+	})
+	if err = batchValueDelete.Close(); err != nil {
 		return errors.Join(err, unexpected.RequestErr)
 	}
 
@@ -216,9 +247,9 @@ func (r *categoryRepository) UpdateSubCategory(ctx context.Context, uuid, name s
 	}
 
 	catBatch := qtx.CreateCategoryValues(ctx, args)
-	catBatch.Exec(func(i int, err error) {
+	catBatch.Exec(func(i int, errL error) {
 		if err != nil {
-			err = errors.Join(err, unexpected.RequestErr)
+			err = errors.Join(err, errL)
 		}
 	})
 	if err != nil {
@@ -255,7 +286,7 @@ func (r *categoryRepository) GetChildCategories(ctx context.Context, uuid string
 
 		cat := models.Category{}
 		catVal := models.CategoryValues{
-			Name:   dbCategory.ValueName,
+			Name:   dbCategory.ValueName.String,
 			Points: float32(pointAmount.Float64),
 		}
 		var ok bool
@@ -265,7 +296,7 @@ func (r *categoryRepository) GetChildCategories(ctx context.Context, uuid string
 			continue
 		}
 		cat = models.Category{
-			UUID: pgUUID.String(),
+			UUID: dbCategory.Uuid.String(),
 			Name: dbCategory.CategoryName,
 		}
 		cat.Values = append(cat.Values, catVal)

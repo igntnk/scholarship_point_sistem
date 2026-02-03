@@ -161,7 +161,7 @@ func (s *userService) UpdateUser(ctx context.Context, user requests.UpdateUser) 
 		return errors.Join(err, unexpected.RequestErr)
 	}
 
-	pgPatronymic, err := repository.ParseToPgText(existingUser.Patronymic)
+	pgPatronymic, err := repository.ParseToPgText(user.Patronymic)
 	if err != nil {
 		return errors.Join(err, validation.WrongInputErr)
 	}

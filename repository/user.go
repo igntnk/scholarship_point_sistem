@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/avito-tech/go-transaction-manager/pgxv5"
 	"github.com/gin-gonic/gin"
 	"github.com/igntnk/scholarship_point_system/controllers/responses"
 	"github.com/igntnk/scholarship_point_system/db"
+	"github.com/igntnk/scholarship_point_system/errors/authorization"
 	"github.com/igntnk/scholarship_point_system/errors/parsing"
 	"github.com/igntnk/scholarship_point_system/errors/unexpected"
 	"github.com/igntnk/scholarship_point_system/errors/validation"
@@ -32,18 +34,28 @@ type UserRepository interface {
 }
 
 type userRepository struct {
-	queries *db.Queries
-	querier db.Querier
+	queries   *db.Queries
+	querier   db.Querier
+	txCreator db.TxCreator
 }
 
-func NewUserRepository(pool db.DBTX) UserRepository {
+func NewUserRepository(pool pgxv5.Tr) UserRepository {
 	return &userRepository{
-		queries: db.New(pool),
-		querier: db.NewQuerier(pool),
+		queries:   db.New(pool),
+		querier:   db.NewQuerier(pool),
+		txCreator: db.NewTxCreator(pool),
 	}
 }
 
 func (r *userRepository) CreateUser(ctx context.Context, user models.UserWithCredentials) (string, error) {
+	tx, err := r.txCreator.CreateTx(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := r.queries.WithTx(tx)
+
 	pgBDate, err := ParseToPgDate(user.BirthDate)
 	if err != nil {
 		return "", errors.Join(err, validation.WrongInputErr)
@@ -85,8 +97,17 @@ func (r *userRepository) CreateUser(ctx context.Context, user models.UserWithCre
 		Password:        pgPassword,
 		Salt:            pgSalt,
 	}
-	pgUUID, err := r.queries.CreateUser(ctx, args)
+	pgUUID, err := qtx.CreateUser(ctx, args)
 	if err != nil {
+		return "", errors.Join(err, unexpected.RequestErr)
+	}
+
+	err = qtx.AddUserToUserGroup(ctx, pgUUID)
+	if err != nil {
+		return "", errors.Join(err, unexpected.RequestErr)
+	}
+
+	if err = tx.Commit(ctx); err != nil {
 		return "", errors.Join(err, unexpected.RequestErr)
 	}
 
@@ -147,7 +168,7 @@ func (r *userRepository) GetUserWithCredentialsByEmail(ctx context.Context, emai
 	dbUser, err := r.queries.GetUserByEmail(ctx, pgEmail)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return models.UserWithCredentials{}, errors.Join(err, validation.NoDataFoundErr)
+			return models.UserWithCredentials{}, authorization.WrongPasswordErr
 		}
 		return models.UserWithCredentials{}, errors.Join(err, unexpected.RequestErr)
 	}
@@ -179,7 +200,19 @@ func (r *userRepository) GetRating(
 	error,
 ) {
 	request := `
-select *
+select uuid,
+                      name,
+                      second_name,
+                      patronymic,
+                      gradebook_number,
+                      birth_date,
+                      phone_number,
+                      email,
+                      user_status,
+                      point_amount,
+                      achievement_amount,
+                      total_amount,
+                      all_achievement_verified
 from (select distinct u.uuid,
                       u.name,
                       second_name,
@@ -214,7 +247,7 @@ from (select distinct u.uuid,
                                                              where type = 'category_status'
                                                                and internal_value = 'active')
                left join achievement_category_value acv on acv.achievement_uuid = a.uuid
-               left join category_value cv on cv.uuid = acv.category_value_uuid
+               left join category_value cv on cv.uuid = acv.category_value_uuid and cv.status_uuid != (select s.uuid from status s where type = 'category_value_status' and internal_value = 'unactive')
                left join status u_s on u_s.uuid = u.status_uuid and u_s.type = 'user_status'
                left join status a_s on a_s.uuid = a.status_uuid and a_s.type = 'achievement_status'
       where c.point_amount is not null
@@ -281,10 +314,16 @@ where 1 = 1
 		request = fmt.Sprintf("%s and user_status = 'Подтвержденный'", request)
 	}
 
+	if !Valid && Winners {
+		request = fmt.Sprintf("%s and user_status = 'Подтвержденный'", request)
+	}
+
 	request = fmt.Sprintf("%s order by point_amount", request)
 
 	if Winners {
-		request = fmt.Sprintf("%s limit (select value::bigint from constants where name = 'available_student_grades')", request)
+		if Valid {
+			request = fmt.Sprintf("%s limit (select value::bigint from constants where name = 'available_student_grades')", request)
+		}
 	} else if Limit != 0 {
 		request = fmt.Sprintf("%s limit %d offset %d", request, Limit, Offset)
 	}
@@ -390,7 +429,7 @@ func (r *userRepository) ApproveUser(context *gin.Context, uuid string) error {
 	if err != nil {
 		return errors.Join(err, parsing.InputDataErr)
 	}
-	err = r.queries.MakeAchievementApproved(context, pgUUID)
+	err = r.queries.MakeUserVerified(context, pgUUID)
 	if err != nil {
 		return errors.Join(err, unexpected.RequestErr)
 	}
@@ -401,7 +440,7 @@ func (r *userRepository) DeclineUser(context *gin.Context, uuid string) error {
 	if err != nil {
 		return errors.Join(err, parsing.InputDataErr)
 	}
-	err = r.queries.MakeAchievementDeclined(context, pgUUID)
+	err = r.queries.MakeUserUnverified(context, pgUUID)
 	if err != nil {
 		return errors.Join(err, unexpected.RequestErr)
 	}

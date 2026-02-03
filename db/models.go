@@ -51,6 +51,7 @@ type CategoryValue struct {
 	Name         string
 	CategoryUuid pgtype.UUID
 	Point        pgtype.Numeric
+	StatusUuid   pgtype.UUID
 }
 
 type Constant struct {

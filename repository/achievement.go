@@ -57,12 +57,17 @@ func (r *achievementRepository) GetSimpleUserAchievementByUUID(ctx context.Conte
 		return models.SimpleAchievement{}, errors.Join(err, unexpected.RequestErr)
 	}
 
+	pointAmountFloat, err := dbAchievement.PointAmount.Float64Value()
+	if err != nil {
+		return models.SimpleAchievement{}, errors.Join(err, unexpected.InternalErr)
+	}
+
 	return models.SimpleAchievement{
 		UUID:           dbAchievement.Uuid.String(),
 		AttachmentLink: dbAchievement.AttachmentLink,
 		Status:         dbAchievement.Status.String,
 		CategoryName:   dbAchievement.CategoryName.String,
-		PointAmount:    float32(dbAchievement.PointAmount),
+		PointAmount:    float32(pointAmountFloat.Float64),
 		CategoryUUID:   dbAchievement.CategoryUuid.String(),
 	}, nil
 }
@@ -121,12 +126,17 @@ func (r *achievementRepository) GetAchievementByUUID(ctx context.Context, uuid s
 		return responses.FullAchievement{}, errors.Join(err, unexpected.InternalErr)
 	}
 
+	pointAmountFloat, err := dbAchievement.PointAmount.Float64Value()
+	if err != nil {
+		return responses.FullAchievement{}, errors.Join(err, unexpected.InternalErr)
+	}
+
 	return responses.FullAchievement{
 		UUID:           dbAchievement.Uuid.String(),
 		Comment:        dbAchievement.Comment.String,
 		AttachmentLink: dbAchievement.AttachmentLink,
 		Status:         dbAchievement.Status.String,
-		PointAmount:    float32(dbAchievement.PointAmount),
+		PointAmount:    float32(pointAmountFloat.Float64),
 		Category: responses.Category{
 			UUID:   dbAchievement.CategoryUuid.String(),
 			Name:   dbAchievement.CategoryName.String,
@@ -185,6 +195,11 @@ func (r *achievementRepository) GetUserAchievements(ctx context.Context, uuid st
 
 	modelAchievement := make([]models.SimpleAchievement, len(dbAchievements))
 	for i, dbAchievement := range dbAchievements {
+
+		pointAmount, err := dbAchievement.PointAmount.Float64Value()
+		if err != nil {
+			return []models.SimpleAchievement{}, errors.Join(err, unexpected.InternalErr)
+		}
 		modelAchievement[i] = models.SimpleAchievement{
 			UUID:           dbAchievement.Uuid.String(),
 			AttachmentLink: dbAchievement.AttachmentLink,
@@ -192,7 +207,7 @@ func (r *achievementRepository) GetUserAchievements(ctx context.Context, uuid st
 			Comment:        dbAchievement.Comment.String,
 			CategoryName:   dbAchievement.CategoryName.String,
 			CategoryUUID:   dbAchievement.CategoryUuid.String(),
-			PointAmount:    float32(dbAchievement.PointAmount),
+			PointAmount:    float32(pointAmount.Float64),
 		}
 	}
 	return modelAchievement, nil
@@ -222,6 +237,11 @@ func (r *achievementRepository) GetUserAchievementsWithPagination(ctx context.Co
 	for i, dbAchievement := range dbAchievements {
 		totalRecords = int(dbAchievement.TotalRecords)
 
+		pointAmount, err := dbAchievement.PointAmount.Float64Value()
+		if err != nil {
+			return []models.SimpleAchievement{}, totalRecords, errors.Join(err, unexpected.InternalErr)
+		}
+
 		modelAchievements[i] = models.SimpleAchievement{
 			UUID:           dbAchievement.Uuid.String(),
 			AttachmentLink: dbAchievement.AttachmentLink,
@@ -229,7 +249,7 @@ func (r *achievementRepository) GetUserAchievementsWithPagination(ctx context.Co
 			Comment:        dbAchievement.Comment.String,
 			CategoryName:   dbAchievement.CategoryName.String,
 			CategoryUUID:   dbAchievement.CategoryUuid.String(),
-			PointAmount:    float32(dbAchievement.PointAmount),
+			PointAmount:    float32(pointAmount.Float64),
 		}
 	}
 	return modelAchievements, totalRecords, nil
@@ -456,6 +476,20 @@ func (r *achievementRepository) UpdateAchievementFull(ctx context.Context, achie
 	pgAchievementUUID, err := ParseToPgUUID(achievement.UUID)
 	if err != nil {
 		return errors.Join(err, validation.WrongInputErr)
+	}
+
+	pgComment, err := ParseToPgText(achievement.Comment)
+	if err != nil {
+		return errors.Join(err, validation.WrongInputErr)
+	}
+
+	err = qtx.UpdateAchievementWithStatus(ctx, db.UpdateAchievementWithStatusParams{
+		Comment:        pgComment,
+		AttachmentLink: achievement.AttachmentLink,
+		Uuid:           pgAchievementUUID,
+	})
+	if err != nil {
+		return errors.Join(err, unexpected.RequestErr)
 	}
 
 	err = qtx.DeleteAchievementCategoryValueByAchievementUUID(ctx, pgAchievementUUID)

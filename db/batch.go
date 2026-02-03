@@ -315,6 +315,7 @@ func (b *CreateBatchAchievementCategoryBatchResults) Close() error {
 const createCategoryValues = `-- name: CreateCategoryValues :batchexec
 insert into category_value (name, category_uuid, point)
 VALUES ($1, $2, $3)
+on conflict (name, category_uuid) do update set point = $3, status_uuid = (select s.uuid from status s where type = 'category_status' and internal_value = 'active')
 `
 
 type CreateCategoryValuesBatchResults struct {
@@ -360,6 +361,103 @@ func (b *CreateCategoryValuesBatchResults) Exec(f func(int, error)) {
 }
 
 func (b *CreateCategoryValuesBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const makeCategoryValueUnactive = `-- name: MakeCategoryValueUnactive :batchexec
+update category_value cv
+set status_uuid = (select s.uuid from status s where s.type = 'category_value_status' and s.internal_value = 'unactive')
+where cv.name = $1
+`
+
+type MakeCategoryValueUnactiveBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+func (q *Queries) MakeCategoryValueUnactive(ctx context.Context, name []string) *MakeCategoryValueUnactiveBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range name {
+		vals := []interface{}{
+			a,
+		}
+		batch.Queue(makeCategoryValueUnactive, vals...)
+	}
+	br := q.db.SendBatch(ctx, batch)
+	return &MakeCategoryValueUnactiveBatchResults{br, len(name), false}
+}
+
+func (b *MakeCategoryValueUnactiveBatchResults) Exec(f func(int, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		if b.closed {
+			if f != nil {
+				f(t, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		_, err := b.br.Exec()
+		if f != nil {
+			f(t, err)
+		}
+	}
+}
+
+func (b *MakeCategoryValueUnactiveBatchResults) Close() error {
+	b.closed = true
+	return b.br.Close()
+}
+
+const recreateCategoryValues = `-- name: RecreateCategoryValues :batchexec
+update category_value cv
+set status_uuid = (select s.uuid from status s where s.type = 'category_value_status' and s.internal_value = 'active'),
+    point = $1
+where cv.name = $2
+`
+
+type RecreateCategoryValuesBatchResults struct {
+	br     pgx.BatchResults
+	tot    int
+	closed bool
+}
+
+type RecreateCategoryValuesParams struct {
+	Point pgtype.Numeric
+	Name  string
+}
+
+func (q *Queries) RecreateCategoryValues(ctx context.Context, arg []RecreateCategoryValuesParams) *RecreateCategoryValuesBatchResults {
+	batch := &pgx.Batch{}
+	for _, a := range arg {
+		vals := []interface{}{
+			a.Point,
+			a.Name,
+		}
+		batch.Queue(recreateCategoryValues, vals...)
+	}
+	br := q.db.SendBatch(ctx, batch)
+	return &RecreateCategoryValuesBatchResults{br, len(arg), false}
+}
+
+func (b *RecreateCategoryValuesBatchResults) Exec(f func(int, error)) {
+	defer b.br.Close()
+	for t := 0; t < b.tot; t++ {
+		if b.closed {
+			if f != nil {
+				f(t, ErrBatchAlreadyClosed)
+			}
+			continue
+		}
+		_, err := b.br.Exec()
+		if f != nil {
+			f(t, err)
+		}
+	}
+}
+
+func (b *RecreateCategoryValuesBatchResults) Close() error {
 	b.closed = true
 	return b.br.Close()
 }

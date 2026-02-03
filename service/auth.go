@@ -192,7 +192,7 @@ func (s *authService) SignUp(ctx context.Context, user requests.CreateUser) (str
 	if err == nil {
 		return "", "", "", errors.Join(validation.RecordAlreadyExistsErr, errors.New("email уже зарегистрирован"))
 	}
-	if !errors.Is(err, validation.NoDataFoundErr) && !errors.Is(err, pgx.ErrNoRows) {
+	if !errors.Is(err, authorization.WrongPasswordErr) && !errors.Is(err, pgx.ErrNoRows) {
 		return "", "", "", err
 	}
 

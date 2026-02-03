@@ -102,9 +102,10 @@ func (s categoryService) GetParentCategoriesWithPagination(ctx context.Context, 
 			return nil, 0, errors.Join(err, parsing.OutputDataErr)
 		}
 		categories[i] = models.Category{
-			UUID:   dbCategory.Uuid.String(),
-			Name:   dbCategory.Name,
-			Points: float32(dbFloat.Float64),
+			UUID:                dbCategory.Uuid.String(),
+			Name:                dbCategory.Name,
+			Points:              float32(dbFloat.Float64),
+			SubcategoriesAmount: int(dbCategory.SubAmount),
 		}
 	}
 
@@ -127,9 +128,10 @@ func (s categoryService) GetParentCategories(ctx context.Context) ([]models.Cate
 			return nil, errors.Join(err, parsing.OutputDataErr)
 		}
 		categories[i] = models.Category{
-			UUID:   dbCategory.Uuid.String(),
-			Name:   dbCategory.Name,
-			Points: float32(dbFloat.Float64),
+			UUID:                dbCategory.Uuid.String(),
+			Name:                dbCategory.Name,
+			Points:              float32(dbFloat.Float64),
+			SubcategoriesAmount: int(dbCategory.SubAmount),
 		}
 	}
 

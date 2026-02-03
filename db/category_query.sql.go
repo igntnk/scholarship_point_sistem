@@ -12,8 +12,8 @@ import (
 )
 
 const createCategory = `-- name: CreateCategory :one
-insert into category (name, point_amount, parent_category)
-values ($1, $2, $3)
+insert into category (name, point_amount, parent_category, status_uuid)
+values ($1, $2, $3, (select s.uuid from status s where type = 'category_status' and internal_value = 'active'))
 returning uuid
 `
 
@@ -56,6 +56,7 @@ from category c
          join achievement_category ac on c.uuid = ac.category_uuid
          join status s on s.uuid = c.status_uuid
 where achievement_uuid = $1
+  and s.internal_value != 'unactive'
 `
 
 type GetCategoryByAchievementRow struct {
@@ -173,17 +174,57 @@ func (q *Queries) GetCategoryByUUID(ctx context.Context, uuid pgtype.UUID) (GetC
 	return i, err
 }
 
+const getCategoryValuesBySubCategoryUUID = `-- name: GetCategoryValuesBySubCategoryUUID :many
+select cv.uuid, s.display_value as status, cv.point, cv.name from category_value cv
+         join status s on s.uuid = cv.status_uuid
+         where cv.category_uuid = $1
+`
+
+type GetCategoryValuesBySubCategoryUUIDRow struct {
+	Uuid   pgtype.UUID
+	Status pgtype.Text
+	Point  pgtype.Numeric
+	Name   string
+}
+
+func (q *Queries) GetCategoryValuesBySubCategoryUUID(ctx context.Context, categoryUuid pgtype.UUID) ([]GetCategoryValuesBySubCategoryUUIDRow, error) {
+	rows, err := q.db.Query(ctx, getCategoryValuesBySubCategoryUUID, categoryUuid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetCategoryValuesBySubCategoryUUIDRow
+	for rows.Next() {
+		var i GetCategoryValuesBySubCategoryUUIDRow
+		if err := rows.Scan(
+			&i.Uuid,
+			&i.Status,
+			&i.Point,
+			&i.Name,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getChildCategories = `-- name: GetChildCategories :many
 select c.uuid, c.name as category_name,cv.name as value_name, cv.point
 from category c
-         join category_value cv on c.uuid = cv.category_uuid
+         left join category_value cv on c.uuid = cv.category_uuid and cv.status_uuid != (select s.uuid from status s where type = 'category_value_status' and internal_value = 'unactive')
+         join status s on c.status_uuid = s.uuid
 where c.parent_category = $1
+  and s.internal_value != 'unactive'
 `
 
 type GetChildCategoriesRow struct {
 	Uuid         pgtype.UUID
 	CategoryName string
-	ValueName    string
+	ValueName    pgtype.Text
 	Point        pgtype.Numeric
 }
 
@@ -212,11 +253,49 @@ func (q *Queries) GetChildCategories(ctx context.Context, parentCategory pgtype.
 	return items, nil
 }
 
+const getParentCategoryByAchievement = `-- name: GetParentCategoryByAchievement :one
+select c.uuid, c.name, c.point_amount, c.parent_category, c.comment, c.status_uuid, s.display_value as status_value
+from category c
+         join achievement_category ac on c.uuid = ac.category_uuid
+         join status s on s.uuid = c.status_uuid
+where achievement_uuid = $1
+  and c.parent_category is null
+  and s.internal_value != 'unactive'
+`
+
+type GetParentCategoryByAchievementRow struct {
+	Uuid           pgtype.UUID
+	Name           string
+	PointAmount    pgtype.Numeric
+	ParentCategory pgtype.UUID
+	Comment        pgtype.Text
+	StatusUuid     pgtype.UUID
+	StatusValue    pgtype.Text
+}
+
+func (q *Queries) GetParentCategoryByAchievement(ctx context.Context, achievementUuid pgtype.UUID) (GetParentCategoryByAchievementRow, error) {
+	row := q.db.QueryRow(ctx, getParentCategoryByAchievement, achievementUuid)
+	var i GetParentCategoryByAchievementRow
+	err := row.Scan(
+		&i.Uuid,
+		&i.Name,
+		&i.PointAmount,
+		&i.ParentCategory,
+		&i.Comment,
+		&i.StatusUuid,
+		&i.StatusValue,
+	)
+	return i, err
+}
+
 const listParentCategories = `-- name: ListParentCategories :many
-select c.uuid, c.name, c.point_amount, c.comment, s.display_value
+select c.uuid, c.name, c.point_amount, c.comment, s.display_value, count(c_c.uuid) as sub_amount
 from category c
          join status s on c.status_uuid = s.uuid and type = 'category_status'
-where parent_category is null
+         left join category c_c on c_c.parent_category = c.uuid and c_c.status_uuid != (select i_s.uuid from status i_s where i_s.type = 'category_status' and i_s.internal_value = 'unactive')
+where c.parent_category is null
+  and s.internal_value != 'unactive'
+group by c.name, c.uuid, c.point_amount, c.comment, s.display_value
 `
 
 type ListParentCategoriesRow struct {
@@ -225,6 +304,7 @@ type ListParentCategoriesRow struct {
 	PointAmount  pgtype.Numeric
 	Comment      pgtype.Text
 	DisplayValue pgtype.Text
+	SubAmount    int64
 }
 
 func (q *Queries) ListParentCategories(ctx context.Context) ([]ListParentCategoriesRow, error) {
@@ -242,6 +322,7 @@ func (q *Queries) ListParentCategories(ctx context.Context) ([]ListParentCategor
 			&i.PointAmount,
 			&i.Comment,
 			&i.DisplayValue,
+			&i.SubAmount,
 		); err != nil {
 			return nil, err
 		}
@@ -254,10 +335,13 @@ func (q *Queries) ListParentCategories(ctx context.Context) ([]ListParentCategor
 }
 
 const listParentCategoriesWithPagination = `-- name: ListParentCategoriesWithPagination :many
-select c.uuid, c.name, c.point_amount, s.display_value, count(c.uuid) over () as total_amount
+select c.uuid, c.name, c.point_amount, s.display_value, count(c.uuid) over () as total_amount, count(c_c.uuid) as sub_amount
 from category c
          join status s on c.status_uuid = s.uuid and type = 'category_status'
-where parent_category is null
+         left join category c_c on c_c.parent_category = c.uuid and c_c.status_uuid != (select i_s.uuid from status i_s where i_s.type = 'category_status' and i_s.internal_value = 'unactive')
+where c.parent_category is null
+and s.internal_value != 'unactive'
+group by c.name, c.uuid, c.point_amount, c.comment, s.display_value
 limit $1 offset $2
 `
 
@@ -272,6 +356,7 @@ type ListParentCategoriesWithPaginationRow struct {
 	PointAmount  pgtype.Numeric
 	DisplayValue pgtype.Text
 	TotalAmount  int64
+	SubAmount    int64
 }
 
 func (q *Queries) ListParentCategoriesWithPagination(ctx context.Context, arg ListParentCategoriesWithPaginationParams) ([]ListParentCategoriesWithPaginationRow, error) {
@@ -289,6 +374,7 @@ func (q *Queries) ListParentCategoriesWithPagination(ctx context.Context, arg Li
 			&i.PointAmount,
 			&i.DisplayValue,
 			&i.TotalAmount,
+			&i.SubAmount,
 		); err != nil {
 			return nil, err
 		}

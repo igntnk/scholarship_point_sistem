@@ -43,11 +43,11 @@ func (q *Queries) DeleteAchievementCategoryValueByAchievementUUID(ctx context.Co
 }
 
 const getAchievementSubCategories = `-- name: GetAchievementSubCategories :many
-select c.uuid, c.name, cv.name as selected_value, cv.point, av_cv.name as available_value
+select distinct c.uuid, c.name, cv.name as selected_value, cv.point, av_cv.name as available_value
 from category c
          join achievement_category ac on ac.category_uuid = c.uuid
          join achievement_category_value acv on acv.achievement_uuid = ac.achievement_uuid
-         join category_value cv on cv.uuid = acv.category_value_uuid
+         join category_value cv on cv.uuid = acv.category_value_uuid and cv.category_uuid = c.uuid
          join category_value av_cv on av_cv.category_uuid = c.uuid
 where parent_category is not null
   and ac.achievement_uuid = $1
@@ -93,14 +93,14 @@ select a.uuid, a.comment, a.attachment_link, a.user_uuid, a.status_uuid, a.achie
        s.display_value                as status,
        c.uuid                         as category_uuid,
        c.point_amount                 as base_point_amount,
-       sum(cv.point) + c.point_amount as point_amount,
+       coalesce(sum(cv.point) + c.point_amount, 0)::numeric as point_amount,
        count(*) over ()               as total_records
 from achievement a
          join achievement_category ac on ac.achievement_uuid = a.uuid
          left join category c on c.uuid = ac.category_uuid and parent_category is null
          left join category c_p on c_p.uuid = ac.category_uuid and c_p.parent_category is not null
          join achievement_category_value acv on acv.achievement_uuid = a.uuid
-         join category_value cv on cv.uuid = acv.category_value_uuid
+         join category_value cv on cv.uuid = acv.category_value_uuid and cv.category_uuid = c.uuid
          join status s on s.uuid = a.status_uuid
 where a.uuid = $1
   and c.uuid is not null
@@ -119,7 +119,7 @@ type GetSimpleUserAchievementByUUIDRow struct {
 	Status          pgtype.Text
 	CategoryUuid    pgtype.UUID
 	BasePointAmount pgtype.Numeric
-	PointAmount     int32
+	PointAmount     pgtype.Numeric
 	TotalRecords    int64
 }
 
@@ -148,16 +148,17 @@ select a.uuid, a.comment, a.attachment_link, a.user_uuid, a.status_uuid, a.achie
        c.name                         as category_name,
        s.display_value                as status,
        c.uuid                         as category_uuid,
-       sum(cv.point) + c.point_amount as point_amount,
+       coalesce(sum(cv.point) + c.point_amount, 0)::numeric as point_amount,
        count(*) over ()               as total_records
 from achievement a
          join achievement_category ac on ac.achievement_uuid = a.uuid
          left join category c on c.uuid = ac.category_uuid and parent_category is null
          left join category c_p on c_p.uuid = ac.category_uuid and c_p.parent_category is not null
          join achievement_category_value acv on acv.achievement_uuid = a.uuid
-         join category_value cv on cv.uuid = acv.category_value_uuid
+         join category_value cv on cv.uuid = acv.category_value_uuid and cv.category_uuid = c.uuid
          join status s on s.uuid = a.status_uuid
 where a.user_uuid = $1
+  and s.internal_value != 'removed'
   and c.uuid is not null
 group by c.name, a.uuid, a.comment, c.point_amount, c.uuid, attachment_link, a.user_uuid, a.status_uuid,
          s.display_value
@@ -173,7 +174,7 @@ type GetUserAchievementsRow struct {
 	CategoryName    pgtype.Text
 	Status          pgtype.Text
 	CategoryUuid    pgtype.UUID
-	PointAmount     int32
+	PointAmount     pgtype.Numeric
 	TotalRecords    int64
 }
 
@@ -214,14 +215,14 @@ select a.uuid, a.comment, a.attachment_link, a.user_uuid, a.status_uuid, a.achie
        c.name                         as category_name,
        s.display_value                as status,
        c.uuid                         as category_uuid,
-       sum(cv.point) + c.point_amount as point_amount,
+       coalesce(sum(cv.point) + c.point_amount, 0)::numeric as point_amount,
        count(*) over ()               as total_records
 from achievement a
          join achievement_category ac on ac.achievement_uuid = a.uuid
          left join category c on c.uuid = ac.category_uuid and parent_category is null
          left join category c_p on c_p.uuid = ac.category_uuid and c_p.parent_category is not null
          join achievement_category_value acv on acv.achievement_uuid = a.uuid
-         join category_value cv on cv.uuid = acv.category_value_uuid
+         join category_value cv on cv.uuid = acv.category_value_uuid  and cv.category_uuid = c.uuid
          join status s on s.uuid = a.status_uuid
 where a.user_uuid = $1
   and c.uuid is not null
@@ -246,7 +247,7 @@ type GetUserAchievementsWithPaginationRow struct {
 	CategoryName    pgtype.Text
 	Status          pgtype.Text
 	CategoryUuid    pgtype.UUID
-	PointAmount     int32
+	PointAmount     pgtype.Numeric
 	TotalRecords    int64
 }
 
@@ -363,5 +364,24 @@ type UpdateAchievementParams struct {
 
 func (q *Queries) UpdateAchievement(ctx context.Context, arg UpdateAchievementParams) error {
 	_, err := q.db.Exec(ctx, updateAchievement, arg.Comment, arg.AttachmentLink, arg.Uuid)
+	return err
+}
+
+const updateAchievementWithStatus = `-- name: UpdateAchievementWithStatus :exec
+update achievement a
+set comment         = $1,
+    attachment_link = $2,
+    status_uuid = (select s.uuid from status s where s.internal_value = 'unapproved' and s.type = 'achievement_status')
+where a.uuid = $3
+`
+
+type UpdateAchievementWithStatusParams struct {
+	Comment        pgtype.Text
+	AttachmentLink string
+	Uuid           pgtype.UUID
+}
+
+func (q *Queries) UpdateAchievementWithStatus(ctx context.Context, arg UpdateAchievementWithStatusParams) error {
+	_, err := q.db.Exec(ctx, updateAchievementWithStatus, arg.Comment, arg.AttachmentLink, arg.Uuid)
 	return err
 }

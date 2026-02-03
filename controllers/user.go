@@ -34,8 +34,8 @@ func (c userController) Register(r *gin.Engine) {
 	group.GET("/simple/:uuid", c.GetSimpleUserByUUID)
 	group.POST("", c.CreateUser)
 	group.PUT("/:uuid", c.UpdateUser)
-	group.PUT("/approve/:uuid")
-	group.PUT("/decline/:uuid")
+	group.PUT("/approve/:uuid", c.ApproveUser)
+	group.PUT("/decline/:uuid", c.DeclineUser)
 
 	self := r.Group("/user", c.m.Authorize)
 	self.GET("/me", c.GetMe)
@@ -219,15 +219,8 @@ func (c userController) ApproveUser(context *gin.Context) {
 		}
 	}()
 
-	accessClaims, ok := context.Get(jwk.ClaimsContextKey)
-	if !ok {
-		err = authorization.UnauthorizedErr
-		return
-	}
-
-	userUUID := accessClaims.(jwk.SPSAccessClaims).User.UUID
-
-	if err = c.userService.ApproveUser(context, userUUID); err != nil {
+	uuid := context.Param("uuid")
+	if err = c.userService.ApproveUser(context, uuid); err != nil {
 		return
 	}
 	context.JSON(http.StatusOK, createResponse("Пользователь успешно подтвержден"))
@@ -242,15 +235,9 @@ func (c userController) DeclineUser(context *gin.Context) {
 		}
 	}()
 
-	accessClaims, ok := context.Get(jwk.ClaimsContextKey)
-	if !ok {
-		err = authorization.UnauthorizedErr
-		return
-	}
+	uuid := context.Param("uuid")
 
-	userUUID := accessClaims.(jwk.SPSAccessClaims).User.UUID
-
-	if err = c.userService.DeclineUser(context, userUUID); err != nil {
+	if err = c.userService.DeclineUser(context, uuid); err != nil {
 		return
 	}
 	context.JSON(http.StatusOK, createResponse("Пользователь успешно отклонен"))

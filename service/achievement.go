@@ -144,7 +144,7 @@ func (s *achievementService) UpdateAchievement(ctx context.Context, a requests.U
 		}
 	}
 
-	if !hasDiff {
+	if !hasDiff && a.AttachmentLink == dbAchievement.AttachmentLink {
 		return s.achievementRepo.UpdateAchievementDescFields(ctx, models.SimpleAchievement{
 			UUID:           a.UUID,
 			AttachmentLink: a.AttachmentLink,

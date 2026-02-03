@@ -3,6 +3,13 @@ insert into sys_user(name, second_name, patronymic, gradebook_number, birth_date
 values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 returning uuid;
 
+-- name: AddUserToUserGroup :exec
+insert into user_role (user_uuid, role_uuid)
+VALUES (
+        $1,
+        (select uuid from auth_role where name = 'Пользователи')
+       );
+
 -- name: GetSimpleUserByUUID :one
 select *
 from sys_user
@@ -13,14 +20,16 @@ select *
 from sys_user;
 
 -- name: GetSimpleUserListWithPagination :many
-select *, count(*) over() as total_amount
+select *, count(*) over () as total_amount
 from sys_user
 limit $1 offset $2;
 
 -- name: GetApprovedUserByGradeBookNumber :one
-select * from sys_user u
-                  join status s on u.status_uuid = s.uuid and s.type = 'user_status'
-where u.gradebook_number = $1 and s.internal_value = 'approved';
+select *
+from sys_user u
+         join status s on u.status_uuid = s.uuid and s.type = 'user_status'
+where u.gradebook_number = $1
+  and s.internal_value = 'approved';
 
 -- name: UpdateUserInfoWithoutGradeBook :exec
 update sys_user
@@ -45,13 +54,19 @@ set name             = $1,
 where sys_user.uuid = $8;
 
 -- name: GetUserByEmail :one
-select * from sys_user where email = $1;
+select *
+from sys_user
+where email = $1;
 
 -- name: MakeUserVerified :exec
-update sys_user set status_uuid = (select s.uuid from status s where type = 'user_status' and internal_value = 'approved');
+update sys_user u
+set status_uuid = (select s.uuid from status s where type = 'user_status' and internal_value = 'approved')
+where u.uuid = $1;
 
 -- name: MakeUserUnverified :exec
-update sys_user set status_uuid = (select s.uuid from status s where type = 'user_status' and internal_value = 'declined');
+update sys_user u
+set status_uuid = (select s.uuid from status s where type = 'user_status' and internal_value = 'declined')
+where u.uuid = $1;
 
 -- name: GetShortRatingInfo :many
 with sub as (select distinct row_number() over ()           as position,
@@ -67,6 +82,7 @@ with sub as (select distinct row_number() over ()           as position,
                              sum(cv.point) + c.point_amount as point_amount,
                              count(a.uuid)                  as achievement_amount,
                              count(*) over ()               as total_amount,
+                             c.point_amount                 as category_point_amount,
                              case
                                  when max(case when a_s.internal_value = 'unapproved' then 1 else 0 end) = 1
                                      then false
@@ -90,7 +106,7 @@ with sub as (select distinct row_number() over ()           as position,
                                                                     where s.type = 'category_status'
                                                                       and s.internal_value = 'active')
                       left join achievement_category_value acv on acv.achievement_uuid = a.uuid
-                      left join category_value cv on cv.uuid = acv.category_value_uuid
+                      left join category_value cv on cv.uuid = acv.category_value_uuid and cv.status_uuid != (select s.uuid from status s where type = 'category_value_status' and internal_value = 'unactive')
                       left join status u_s on u_s.uuid = u.status_uuid and u_s.type = 'user_status'
                       left join status a_s on a_s.uuid = a.status_uuid and a_s.type = 'achievement_status'
              where c.point_amount is not null

@@ -84,7 +84,7 @@ func ParseToPgNumeric(input any) (pgtype.Numeric, error) {
 	case float64:
 		err = pgPointAmount.Scan(strconv.FormatFloat(inp, 'g', -1, 32))
 	case float32:
-		err = pgPointAmount.Scan(strconv.FormatFloat(float64(inp), 'g', -1, 32))
+		err = pgPointAmount.Scan(strconv.FormatFloat(float64(inp), 'g', -1, 64))
 	case int:
 		err = pgPointAmount.Scan(strconv.Itoa(inp))
 	case int64:
