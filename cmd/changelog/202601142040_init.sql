@@ -16,7 +16,7 @@ values ('unapproved', 'Неподтвержденный', 'user_status');
 insert into status (internal_value, display_value, type)
 values ('approved', 'Подтвержденный', 'user_status');
 insert into status (internal_value, display_value, type)
-values ('used', 'Отклонен', 'user_status');
+values ('declined', 'Отклонен', 'user_status');
 
 insert into status (internal_value, display_value, type)
 values ('unapproved', 'Неподтвержденный', 'achievement_status');

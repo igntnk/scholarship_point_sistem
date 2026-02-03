@@ -10,6 +10,7 @@ import (
 
 type RatingService interface {
 	GetRating(context.Context, requests.GetRating) (users []responses.User, totalRecords int, err error)
+	GetShortInfo(ctx context.Context, UserUUID string) (users responses.RatingShortInfo, err error)
 }
 
 type ratingService struct {
@@ -47,4 +48,8 @@ func (s *ratingService) GetRating(
 	}
 
 	return modUsers, totalRecords, nil
+}
+
+func (s *ratingService) GetShortInfo(ctx context.Context, UserUUID string) (users responses.RatingShortInfo, err error) {
+	return s.userRepo.GetShortInfoRating(ctx, UserUUID)
 }

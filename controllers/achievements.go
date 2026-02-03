@@ -38,7 +38,7 @@ func (c *achievementController) Register(r *gin.Engine) {
 	group.PUT("/approve/:uuid", c.ApproveAchievement)
 	group.PUT("/decline/:uuid", c.DeclineAchievement)
 	group.POST("", c.CreateAchievement)
-	group.DELETE("", c.DeleteAchievement)
+	group.DELETE("/:uuid", c.DeleteAchievement)
 	group.PUT("", c.UpdateAchievement)
 }
 

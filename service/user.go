@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/gin-gonic/gin"
 	"github.com/igntnk/scholarship_point_system/controllers/requests"
 	"github.com/igntnk/scholarship_point_system/db"
 	"github.com/igntnk/scholarship_point_system/errors/unexpected"
@@ -20,6 +21,8 @@ type UserService interface {
 	GetSimpleUserListWithPagination(ctx context.Context, limit, offset int) ([]models.SimpleUser, int, error)
 	GetSimpleUserByUUID(ctx context.Context, uuid string) (models.SimpleUser, error)
 	UpdateUser(ctx context.Context, user requests.UpdateUser) error
+	ApproveUser(context *gin.Context, uuid string) error
+	DeclineUser(context *gin.Context, uuid string) error
 }
 
 type userService struct {
@@ -206,4 +209,11 @@ func (s *userService) UpdateUser(ctx context.Context, user requests.UpdateUser) 
 		return errors.Join(err, unexpected.RequestErr)
 	}
 	return nil
+}
+
+func (s *userService) ApproveUser(context *gin.Context, uuid string) error {
+	return s.userRepo.ApproveUser(context, uuid)
+}
+func (s *userService) DeclineUser(context *gin.Context, uuid string) error {
+	return s.userRepo.DeclineUser(context, uuid)
 }

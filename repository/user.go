@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/gin-gonic/gin"
 	"github.com/igntnk/scholarship_point_system/controllers/responses"
 	"github.com/igntnk/scholarship_point_system/db"
 	"github.com/igntnk/scholarship_point_system/errors/parsing"
@@ -25,6 +26,9 @@ type UserRepository interface {
 	UpdateUserWithGradeBook(ctx context.Context, args db.UpdateUserInfoWithGradeBookParams) error
 	GetUserWithCredentialsByEmail(ctx context.Context, email string) (models.UserWithCredentials, error)
 	GetRating(ctx context.Context, searchWords []string, Valid bool, Winners bool, Limit int, Offset int) ([]responses.User, int, error)
+	GetShortInfoRating(ctx context.Context, userUUID string) (responses.RatingShortInfo, error)
+	ApproveUser(context *gin.Context, uuid string) error
+	DeclineUser(context *gin.Context, uuid string) error
 }
 
 type userRepository struct {
@@ -347,4 +351,59 @@ where 1 = 1
 	}
 
 	return users, TotalAmount, nil
+}
+
+func (r *userRepository) GetShortInfoRating(ctx context.Context, userUUID string) (responses.RatingShortInfo, error) {
+	pgUUID, err := ParseToPgUUID(userUUID)
+	if err != nil {
+		return responses.RatingShortInfo{}, errors.Join(err, parsing.InputDataErr)
+	}
+
+	dbShortInfo, err := r.queries.GetShortRatingInfo(ctx, pgUUID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return responses.RatingShortInfo{}, validation.NoDataFoundErr
+		}
+		return responses.RatingShortInfo{}, errors.Join(err, unexpected.RequestErr)
+	}
+
+	result := responses.RatingShortInfo{}
+	for i, info := range dbShortInfo {
+		if i == 0 {
+			result.LeaderPoints = float64(info.PointAmount)
+			if len(dbShortInfo)-1 == 0 {
+				result.CurrentPoints = float64(info.PointAmount)
+				result.CurrentPosition = int(info.Position)
+			}
+			continue
+		}
+
+		result.CurrentPoints = float64(info.PointAmount)
+		result.CurrentPosition = int(info.Position)
+	}
+
+	return result, nil
+}
+
+func (r *userRepository) ApproveUser(context *gin.Context, uuid string) error {
+	pgUUID, err := ParseToPgUUID(uuid)
+	if err != nil {
+		return errors.Join(err, parsing.InputDataErr)
+	}
+	err = r.queries.MakeAchievementApproved(context, pgUUID)
+	if err != nil {
+		return errors.Join(err, unexpected.RequestErr)
+	}
+	return nil
+}
+func (r *userRepository) DeclineUser(context *gin.Context, uuid string) error {
+	pgUUID, err := ParseToPgUUID(uuid)
+	if err != nil {
+		return errors.Join(err, parsing.InputDataErr)
+	}
+	err = r.queries.MakeAchievementDeclined(context, pgUUID)
+	if err != nil {
+		return errors.Join(err, unexpected.RequestErr)
+	}
+	return nil
 }
