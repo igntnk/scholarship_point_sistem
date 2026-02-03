@@ -201,130 +201,116 @@ func (r *userRepository) GetRating(
 ) {
 	request := `
 select uuid,
-                      name,
-                      second_name,
-                      patronymic,
-                      gradebook_number,
-                      birth_date,
-                      phone_number,
-                      email,
-                      user_status,
-                      point_amount,
-                      achievement_amount,
-                      total_amount,
-                      all_achievement_verified
-from (select distinct u.uuid,
-                      u.name,
-                      second_name,
-                      patronymic,
-                      gradebook_number,
-                      birth_date,
-                      phone_number,
-                      email,
-                      u_s.display_value              as user_status,
-                      sum(cv.point) + c.point_amount as point_amount,
-                      count(a.uuid)                  as achievement_amount,
-                      count(*) over ()               as total_amount,
-                      case
-                          when max(case when a_s.internal_value = 'unapproved' then 1 else 0 end) = 1
-                              then false
-                          else true
-                          end                        as all_achievement_verified
+       name,
+       second_name,
+       patronymic,
+       gradebook_number,
+       birth_date,
+       phone_number,
+       email,
+       user_status,
+       point_amount,
+       achievement_amount,
+       count(*) over () as total_amount,
+       achievement_proofed
+from (select u.uuid,
+             u.name,
+             second_name,
+             patronymic,
+             gradebook_number,
+             birth_date,
+             phone_number,
+             email,
+             u_s.display_value                                           as user_status,
+             count(distinct a.uuid)                                      as achievement_amount,
+             coalesce(sum(cv.point) + sum(p_c.point_amount), 0)::numeric as point_amount,
+             not bool_or(a_s.internal_value = 'unapproved')              as achievement_proofed
       from sys_user u
-               left join achievement a on a.user_uuid = u.uuid and a.status_uuid in (select uuid
-                                                                                     from status
-                                                                                     where type = 'achievement_status'
-                                                                                       and internal_value != 'declined')
-               left join achievement_category ac on ac.achievement_uuid = a.uuid
-               left join category c
-                         on c.uuid = ac.category_uuid and parent_category is null and c.status_uuid in (select uuid
-                                                                                                        from status
-                                                                                                        where type = 'category_status'
-                                                                                                          and internal_value = 'active')
-               left join category c_p on c_p.uuid = ac.category_uuid and c_p.parent_category is not null and
-                                         c_p.status_uuid in (select uuid
-                                                             from status
-                                                             where type = 'category_status'
-                                                               and internal_value = 'active')
-               left join achievement_category_value acv on acv.achievement_uuid = a.uuid
-               left join category_value cv on cv.uuid = acv.category_value_uuid and cv.status_uuid != (select s.uuid from status s where type = 'category_value_status' and internal_value = 'unactive')
-               left join status u_s on u_s.uuid = u.status_uuid and u_s.type = 'user_status'
+               join status u_s on u_s.uuid = u.status_uuid
+               left join achievement a on a.user_uuid = u.uuid
                left join status a_s on a_s.uuid = a.status_uuid and a_s.type = 'achievement_status'
-      where c.point_amount is not null
+               left join achievement_category ac on ac.achievement_uuid = a.uuid
+               left join category p_c
+                         on p_c.uuid = ac.category_uuid and p_c.parent_category is null and
+                            p_c.status_uuid in (select uuid
+                                                from status
+                                                where type = 'category_status'
+                                                  and internal_value = 'active')
+               left join category c_c
+                         on c_c.uuid = ac.category_uuid and c_c.parent_category is not null and
+                            c_c.status_uuid in (select uuid
+                                                from status
+                                                where type = 'category_status'
+                                                  and internal_value = 'active')
+               left join achievement_category_value acv on acv.achievement_uuid = a.uuid
+               left join category_value cv on cv.uuid = acv.category_value_uuid and cv.category_uuid = c_c.uuid and
+                                              cv.status_uuid != (select s.uuid
+                                                                 from status s
+                                                                 where type = 'category_value_status'
+                                                                   and internal_value = 'unactive')
+      where ((a_s.internal_value != 'removed' and a_s.internal_value != 'declined') or a_s.internal_value is null) %s
       group by u.uuid, u.name, second_name, patronymic, gradebook_number, birth_date, phone_number, email,
-               c.point_amount, u_s.display_value) as sub
+               u_s.display_value,
+               c_c.point_amount
+      %s) as sub
 where 1 = 1
 `
 
-	name := ""
-	secondName := ""
-	patronymic := ""
-	gradebookNumber := ""
-	phoneNumber := ""
-	email := ""
-	userStatus := ""
+	searchTemplate := ""
 	for i, searchWord := range searchWords {
 		if searchWord == "" {
 			continue
 		}
 
 		if i == 0 {
-			name = fmt.Sprintf("(name ilike '%%%s%%'", searchWord)
-			secondName = fmt.Sprintf("(second_name ilike '%%%s%%'", searchWord)
-			patronymic = fmt.Sprintf("(patronymic ilike '%%%s%%'", searchWord)
-			gradebookNumber = fmt.Sprintf("(gradebook_number ilike '%%%s%%'", searchWord)
-			phoneNumber = fmt.Sprintf("(phone_number ilike '%%%s%%'", searchWord)
-			email = fmt.Sprintf("(email ilike '%%%s%%' ", searchWord)
-			userStatus = fmt.Sprintf("(user_status ilike '%%%s%%'", searchWord)
+			searchTemplate = fmt.Sprintf("(%%s ilike '%%%%%s%%%%'", searchWord)
 		} else {
-			name = fmt.Sprintf("%s or name ilike '%%%s%%'", name, searchWord)
-			secondName = fmt.Sprintf("%s or second_name ilike '%%%s%%'", secondName, searchWord)
-			patronymic = fmt.Sprintf("%s or patronymic ilike '%%%s%%'", patronymic, searchWord)
-			gradebookNumber = fmt.Sprintf("%s or gradebook_number ilike '%%%s%%'", gradebookNumber, searchWord)
-			phoneNumber = fmt.Sprintf("%s or phone_number ilike '%%%s%%'", phoneNumber, searchWord)
-			email = fmt.Sprintf("%s or email ilike '%%%s%%'", email, searchWord)
-			userStatus = fmt.Sprintf("%s or user_status ilike '%%%s%%'", userStatus, searchWord)
+			searchTemplate = fmt.Sprintf("%s or %%s ilike '%%%%%s%%%%'", searchTemplate, searchWord)
 		}
 
 		if i == len(searchWords)-1 {
-			name = fmt.Sprintf("%s)", name)
-			secondName = fmt.Sprintf("%s)", secondName)
-			patronymic = fmt.Sprintf("%s)", patronymic)
-			gradebookNumber = fmt.Sprintf("%s)", gradebookNumber)
-			phoneNumber = fmt.Sprintf("%s)", phoneNumber)
-			email = fmt.Sprintf("%s)", email)
-			userStatus = fmt.Sprintf("%s)", userStatus)
+			searchTemplate = fmt.Sprintf("%s)", searchTemplate)
 		}
 	}
 
-	if name != "" {
-		request = fmt.Sprintf("%s and (%s or %s or %s or %s or %s or %s or %s)",
-			request,
-			name,
-			secondName,
-			patronymic,
-			gradebookNumber,
-			phoneNumber,
-			email,
-			userStatus,
+	searchStmt := ""
+	if searchTemplate != "" {
+		searchStmt = fmt.Sprintf("and (%s or %s or %s or %s or %s or %s or %s)",
+			searchTemplate,
+			searchTemplate,
+			searchTemplate,
+			searchTemplate,
+			searchTemplate,
+			searchTemplate,
+			searchTemplate,
+		)
+		searchStmt = fmt.Sprintf(searchStmt, "u.name",
+			"second_name",
+			"patronymic",
+			"gradebook_number",
+			"u_s.display_value",
+			"phone_number",
+			"email",
 		)
 	}
 
 	if Valid {
-		request = fmt.Sprintf("%s and user_status = 'Подтвержденный'", request)
+		searchStmt = fmt.Sprintf("%s and u_s.display_value = 'Подтвержденный'", searchStmt)
 	}
 
-	if !Valid && Winners {
-		request = fmt.Sprintf("%s and user_status = 'Подтвержденный'", request)
+	limitStmt := ""
+	if Winners {
+		if !Valid {
+			searchStmt = fmt.Sprintf("%s and u_s.display_value = 'Подтвержденный'", searchStmt)
+		}
+		limitStmt = "limit (select value::bigint from constants where name = 'available_student_grades')"
 	}
+
+	request = fmt.Sprintf(request, searchStmt, limitStmt)
 
 	request = fmt.Sprintf("%s order by point_amount", request)
 
-	if Winners {
-		if Valid {
-			request = fmt.Sprintf("%s limit (select value::bigint from constants where name = 'available_student_grades')", request)
-		}
-	} else if Limit != 0 {
+	if Limit != 0 {
 		request = fmt.Sprintf("%s limit %d offset %d", request, Limit, Offset)
 	}
 
@@ -340,7 +326,7 @@ where 1 = 1
 	TotalAmount := 0
 	for rows.Next() {
 		var (
-			firstName              sql.NullString
+			name                   sql.NullString
 			secondName             sql.NullString
 			uuid                   string
 			patronymic             sql.NullString
@@ -355,7 +341,7 @@ where 1 = 1
 		)
 		if err = rows.Scan(
 			&uuid,
-			&firstName,
+			&name,
 			&secondName,
 			&patronymic,
 			&gradebookNumber,
@@ -373,7 +359,7 @@ where 1 = 1
 
 		user := responses.User{
 			UUID:                   uuid,
-			Name:                   firstName.String,
+			Name:                   name.String,
 			SecondName:             secondName.String,
 			Patronymic:             patronymic.String,
 			BirthDate:              birthDate.String,

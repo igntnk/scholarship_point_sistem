@@ -99,8 +99,8 @@ from achievement a
          join achievement_category ac on ac.achievement_uuid = a.uuid
          left join category c on c.uuid = ac.category_uuid and parent_category is null
          left join category c_p on c_p.uuid = ac.category_uuid and c_p.parent_category is not null
-         join achievement_category_value acv on acv.achievement_uuid = a.uuid
-         join category_value cv on cv.uuid = acv.category_value_uuid and cv.category_uuid = c.uuid
+         left join achievement_category_value acv on acv.achievement_uuid = a.uuid
+         left join category_value cv on cv.uuid = acv.category_value_uuid and cv.category_uuid = c_p.uuid
          join status s on s.uuid = a.status_uuid
 where a.uuid = $1
   and c.uuid is not null
@@ -154,8 +154,8 @@ from achievement a
          join achievement_category ac on ac.achievement_uuid = a.uuid
          left join category c on c.uuid = ac.category_uuid and parent_category is null
          left join category c_p on c_p.uuid = ac.category_uuid and c_p.parent_category is not null
-         join achievement_category_value acv on acv.achievement_uuid = a.uuid
-         join category_value cv on cv.uuid = acv.category_value_uuid and cv.category_uuid = c.uuid
+         left join achievement_category_value acv on acv.achievement_uuid = a.uuid
+         left join category_value cv on cv.uuid = acv.category_value_uuid and cv.category_uuid = c_p.uuid
          join status s on s.uuid = a.status_uuid
 where a.user_uuid = $1
   and s.internal_value != 'removed'
@@ -221,10 +221,11 @@ from achievement a
          join achievement_category ac on ac.achievement_uuid = a.uuid
          left join category c on c.uuid = ac.category_uuid and parent_category is null
          left join category c_p on c_p.uuid = ac.category_uuid and c_p.parent_category is not null
-         join achievement_category_value acv on acv.achievement_uuid = a.uuid
-         join category_value cv on cv.uuid = acv.category_value_uuid  and cv.category_uuid = c.uuid
+         left join achievement_category_value acv on acv.achievement_uuid = a.uuid
+         left join category_value cv on cv.uuid = acv.category_value_uuid and cv.category_uuid = c_p.uuid
          join status s on s.uuid = a.status_uuid
 where a.user_uuid = $1
+  and s.internal_value != 'removed'
   and c.uuid is not null
 group by c.name, a.uuid, a.comment, c.point_amount, c.uuid, attachment_link, a.user_uuid, a.status_uuid,
          s.display_value
